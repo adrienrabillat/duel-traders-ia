@@ -10,7 +10,10 @@ Endpoints réservés à l'équipe humaine qui pilote l'expérience :
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
@@ -38,6 +41,7 @@ from app.models import (
     OrderRecord,
     Position,
     Strategy,
+    TeamDeliberation,
     Trade,
 )
 from app.services.episode_manager import EpisodeManager
@@ -147,21 +151,46 @@ async def force_wake_candidate(
 
 
 def _reset_candidate_data(db: Session, candidate: Candidate) -> dict:
-    """Helper : efface tout l'historique d'un candidat et reset son wallet."""
+    """Helper : efface tout l'historique d'un candidat et reset son wallet.
+
+    Ordre important : TeamDeliberation -> OrderRecord -> Trade -> Decision
+    -> Strategy -> Position -> wallet. On supprime les enfants avant les
+    parents pour éviter les violations de FK même si le CASCADE DB devrait
+    suffire (sécurité ceinture+bretelles + clarté).
+    """
     cid = candidate.id
     decisions_count = db.query(Decision).filter(Decision.candidate_id == cid).count()
     trades_count = db.query(Trade).filter(Trade.candidate_id == cid).count()
     orders_count = db.query(OrderRecord).filter(OrderRecord.candidate_id == cid).count()
     strategies_count = db.query(Strategy).filter(Strategy.candidate_id == cid).count()
 
-    db.query(Strategy).filter(Strategy.candidate_id == cid).delete(synchronize_session=False)
-    db.query(OrderRecord).filter(OrderRecord.candidate_id == cid).delete(synchronize_session=False)
-    db.query(Trade).filter(Trade.candidate_id == cid).delete(synchronize_session=False)
-    db.query(Decision).filter(Decision.candidate_id == cid).delete(synchronize_session=False)
-    db.query(Position).filter(Position.wallet_id == candidate.wallet.id).delete(
-        synchronize_session=False
-    )
-    candidate.wallet.usdc_balance = candidate.wallet.initial_balance
+    # On bypass l'autoflush pendant les deletes massifs pour éviter qu'un
+    # UPDATE pending sur la session (genre wallet.usdc_balance) parte
+    # avant les deletes et déclenche un conflit FK.
+    with db.no_autoflush:
+        # Supprimer d'abord les TeamDeliberations liées aux decisions du candidat
+        decision_ids = [
+            d.id for d in db.query(Decision.id)
+            .filter(Decision.candidate_id == cid).all()
+        ]
+        if decision_ids:
+            db.query(TeamDeliberation).filter(
+                TeamDeliberation.decision_id.in_(decision_ids)
+            ).delete(synchronize_session=False)
+
+        db.query(OrderRecord).filter(OrderRecord.candidate_id == cid).delete(synchronize_session=False)
+        db.query(Trade).filter(Trade.candidate_id == cid).delete(synchronize_session=False)
+        db.query(Decision).filter(Decision.candidate_id == cid).delete(synchronize_session=False)
+        db.query(Strategy).filter(Strategy.candidate_id == cid).delete(synchronize_session=False)
+        if candidate.wallet:
+            db.query(Position).filter(Position.wallet_id == candidate.wallet.id).delete(
+                synchronize_session=False
+            )
+
+    # Maintenant on peut mettre à jour le wallet (UPDATE simple, pas de
+    # conflit FK puisque tout l'historique est nettoyé).
+    if candidate.wallet:
+        candidate.wallet.usdc_balance = candidate.wallet.initial_balance
     return {
         "decisions": decisions_count,
         "trades": trades_count,
@@ -179,21 +208,30 @@ def reset_all_candidates(
     Si new_initial_balance_usdc est passé en query param, on update aussi
     initial_balance (par défaut on garde l'initial_balance existant).
     """
-    from decimal import Decimal
+    from decimal import Decimal as _D
 
-    new_initial = Decimal(new_initial_balance_usdc) if new_initial_balance_usdc else None
-    candidates = db.query(Candidate).all()
-    summary = []
-    for c in candidates:
-        if new_initial is not None:
-            c.wallet.initial_balance = new_initial
-        cleared = _reset_candidate_data(db, c)
-        summary.append({
-            "candidate": c.name,
-            "cleared": cleared,
-            "wallet_usdc": str(c.wallet.usdc_balance),
-        })
-    db.commit()
+    try:
+        new_initial = _D(new_initial_balance_usdc) if new_initial_balance_usdc else None
+        candidates = db.query(Candidate).all()
+        summary = []
+        for c in candidates:
+            if new_initial is not None and c.wallet:
+                c.wallet.initial_balance = new_initial
+            cleared = _reset_candidate_data(db, c)
+            summary.append({
+                "candidate": c.name,
+                "cleared": cleared,
+                "wallet_usdc": str(c.wallet.usdc_balance) if c.wallet else "n/a",
+            })
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        import traceback as _tb
+        logger.exception("Reset all failed")
+        raise HTTPException(
+            500,
+            f"{type(e).__name__}: {e}\n\n{_tb.format_exc()[:2000]}",
+        ) from e
     return {"ok": True, "count": len(summary), "candidates": summary}
 
 
@@ -283,55 +321,28 @@ def resume_experiment(db: Session = DbDep) -> dict:
 @router.post("/candidates/{candidate_id}/reset")
 def reset_candidate(candidate_id: int, db: Session = DbDep) -> dict:
     """Reset complet d'un candidat : efface tout l'historique et remet le wallet
-    à son solde initial.
-
-    Supprime :
-    - toutes les décisions du candidat (et leurs TeamDeliberation en cascade)
-    - tous les ordres
-    - tous les trades
-    - toutes les stratégies
-    - toutes les positions
-    Puis recharge usdc_balance = initial_balance.
-
-    Réservé au candidat Team par sécurité (kind=="team"). Pour les solos,
-    refus 400 — on ne veut pas effacer un historique de course par erreur.
+    à son solde initial. Marche pour TOUS les candidats (solo et team).
+    En cas d'erreur, on renvoie un 500 avec le type d'exception exact dans
+    le JSON pour faciliter le debug en prod.
     """
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(404, "Candidate not found")
-    if candidate.kind != "team":
+    try:
+        cleared = _reset_candidate_data(db, candidate)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        import traceback as _tb
+        logger.exception("Reset candidate %s failed", candidate_id)
         raise HTTPException(
-            400,
-            f"Reset réservé au candidat Team (kind=team). Ici kind={candidate.kind!r}.",
-        )
-
-    # 1. Compter avant pour le rapport
-    decisions_count = db.query(Decision).filter(Decision.candidate_id == candidate_id).count()
-    trades_count = db.query(Trade).filter(Trade.candidate_id == candidate_id).count()
-    orders_count = db.query(OrderRecord).filter(OrderRecord.candidate_id == candidate_id).count()
-    strategies_count = db.query(Strategy).filter(Strategy.candidate_id == candidate_id).count()
-
-    # 2. Suppression — Decision en dernier pour que CASCADE prenne TeamDeliberation
-    db.query(Strategy).filter(Strategy.candidate_id == candidate_id).delete(synchronize_session=False)
-    db.query(OrderRecord).filter(OrderRecord.candidate_id == candidate_id).delete(synchronize_session=False)
-    db.query(Trade).filter(Trade.candidate_id == candidate_id).delete(synchronize_session=False)
-    db.query(Decision).filter(Decision.candidate_id == candidate_id).delete(synchronize_session=False)
-    db.query(Position).filter(Position.wallet_id == candidate.wallet.id).delete(synchronize_session=False)
-
-    # 3. Reset wallet
-    candidate.wallet.usdc_balance = candidate.wallet.initial_balance
-
-    db.commit()
-
+            500,
+            f"{type(e).__name__}: {e}\n\n{_tb.format_exc()[:2000]}",
+        ) from e
     return {
         "ok": True,
         "candidate": candidate.name,
-        "cleared": {
-            "decisions": decisions_count,
-            "trades": trades_count,
-            "orders": orders_count,
-            "strategies": strategies_count,
-        },
+        "cleared": cleared,
         "wallet": {
             "usdc_balance": str(candidate.wallet.usdc_balance),
         },
