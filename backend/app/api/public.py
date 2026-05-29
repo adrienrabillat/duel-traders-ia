@@ -21,6 +21,7 @@ from app.api.schemas import (
     OrderOut,
     PositionOut,
     StrategyOut,
+    TradeOut,
     WalletOut,
 )
 from app.deps import DbDep
@@ -32,6 +33,7 @@ from app.models import (
     OracleQuery,
     OrderRecord,
     Strategy,
+    Trade,
 )
 from app.services.episode_manager import EpisodeManager
 from app.services.ledger import Ledger
@@ -157,6 +159,42 @@ def get_leaderboard(db: Session = DbDep) -> list[LeaderboardEntry]:
         )
     entries.sort(key=lambda e: e.portfolio_value_usdc, reverse=True)
     return entries
+
+
+@router.get("/candidates/{candidate_id}", response_model=CandidateOut)
+def get_candidate(candidate_id: int, db: Session = DbDep) -> CandidateOut:
+    candidate = db.execute(
+        select(Candidate)
+        .options(joinedload(Candidate.wallet))
+        .where(Candidate.id == candidate_id)
+    ).unique().scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(404, "Candidate not found")
+    return CandidateOut(
+        id=candidate.id,
+        name=candidate.name,
+        model=candidate.model,
+        kind=candidate.kind,
+        is_active=candidate.is_active,
+        wallet=_wallet_out(candidate),
+    )
+
+
+@router.get("/candidates/{candidate_id}/trades", response_model=list[TradeOut])
+def get_candidate_trades(
+    candidate_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = DbDep,
+) -> list[TradeOut]:
+    trades = list(
+        db.execute(
+            select(Trade)
+            .where(Trade.candidate_id == candidate_id)
+            .order_by(desc(Trade.executed_at))
+            .limit(limit)
+        ).scalars()
+    )
+    return [TradeOut.model_validate(t) for t in trades]
 
 
 @router.get("/candidates/{candidate_id}/strategy", response_model=StrategyOut)

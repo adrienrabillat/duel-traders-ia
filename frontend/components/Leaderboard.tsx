@@ -76,7 +76,7 @@ function CandidateCard({
     roi > 0 ? "text-positive" : roi < 0 ? "text-negative" : "text-muted";
 
   return (
-    <div className="card">
+    <a href={`/c/${entry.candidate_id}`} className="card block hover:shadow-lg transition">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs text-muted">#{rank}</div>
@@ -102,7 +102,7 @@ function CandidateCard({
           </div>
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 

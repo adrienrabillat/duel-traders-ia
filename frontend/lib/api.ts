@@ -127,9 +127,51 @@ export type CostSummary = {
 // Public
 // =============================================================================
 
+export type Trade = {
+  id: number;
+  side: string;
+  symbol: string;
+  quantity: string;
+  price: string;
+  notional_usdc: string;
+  fee_usdc: string;
+  pnl_realized_usdc: string | null;
+  executed_at: string;
+};
+
+export type Strategy = {
+  version: number;
+  text: string;
+  episode_number: number;
+  created_at: string;
+};
+
+export type Decision = {
+  id: number;
+  candidate_id: number;
+  episode_number: number;
+  raw_response: string;
+  parsed_action: Record<string, unknown> | null;
+  parse_error: string | null;
+  provider: string;
+  model: string;
+  tokens_input: number;
+  tokens_output: number;
+  latency_ms: number;
+  attempt_count: number;
+  created_at: string;
+};
+
 export const api = {
   getExperiment: () => request<Experiment>("/api/experiment"),
   getCandidates: () => request<Candidate[]>("/api/candidates"),
+  getCandidate: (id: number | string) => request<Candidate>(`/api/candidates/${id}`),
+  getCandidateStrategy: (id: number | string) =>
+    request<Strategy>(`/api/candidates/${id}/strategy`),
+  getCandidateDecisions: (id: number | string, limit = 30) =>
+    request<Decision[]>(`/api/candidates/${id}/decisions?limit=${limit}`),
+  getCandidateTrades: (id: number | string, limit = 50) =>
+    request<Trade[]>(`/api/candidates/${id}/trades?limit=${limit}`),
   getLeaderboard: () => request<LeaderboardEntry[]>("/api/leaderboard"),
   getRecentOrders: (limit = 30) =>
     request<Order[]>(`/api/orders/recent?limit=${limit}`),

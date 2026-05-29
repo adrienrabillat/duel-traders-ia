@@ -62,6 +62,18 @@ class CandidateOut(_Base):
     wallet: WalletOut
 
 
+class TradeOut(_Base):
+    id: int
+    side: str
+    symbol: str
+    quantity: Decimal
+    price: Decimal
+    notional_usdc: Decimal
+    fee_usdc: Decimal
+    pnl_realized_usdc: Decimal | None
+    executed_at: datetime
+
+
 class LeaderboardEntry(BaseModel):
     candidate_id: int
     candidate_name: str
