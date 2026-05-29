@@ -48,6 +48,9 @@ PRICING: dict[str, ModelPrice] = {
     "mistral-large-2512": ModelPrice(Decimal("3.00"), Decimal("12.00")),
     "mistral-medium-latest": ModelPrice(Decimal("1.00"), Decimal("3.00")),
     # --- Google ---
+    "gemini-3.1-pro-preview": ModelPrice(Decimal("2.00"), Decimal("10.00")),
+    "gemini-3-pro-preview": ModelPrice(Decimal("1.50"), Decimal("7.50")),
+    "gemini-3.5-flash": ModelPrice(Decimal("0.40"), Decimal("1.60")),
     "gemini-2.5-pro": ModelPrice(Decimal("1.25"), Decimal("5.00")),
     "gemini-2.5-flash": ModelPrice(Decimal("0.30"), Decimal("1.20")),
     # --- xAI ---

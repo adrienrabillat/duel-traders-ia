@@ -56,7 +56,7 @@ CANDIDATES = [
     ("Claude", "claude-opus-4-8", "anthropic"),
     ("ChatGPT", "gpt-5.5", "openai"),
     ("Mistral", "mistral-large-latest", "mistral"),
-    ("Gemini", "gemini-2.5-pro", "gemini"),
+    ("Gemini", "gemini-3.1-pro-preview", "gemini"),
     ("Grok", "grok-4.3", "xai"),
 ]
 
