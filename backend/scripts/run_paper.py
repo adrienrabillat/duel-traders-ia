@@ -62,6 +62,11 @@ CANDIDATES = [
 
 TEAM_PROVIDER = "anthropic"
 
+# Ordre des prises de parole dans le Conseil. On commence par Mistral pour avoir
+# un point de vue "européen / open-source" qui pose le débat, puis on alterne.
+# (L'ordre des candidats individuels au leaderboard, lui, suit CANDIDATES.)
+TEAM_SPEAKING_ORDER = ["Mistral", "Claude", "ChatGPT", "Gemini", "Grok"]
+
 SCRIPTED_HOLD = (
     '{"action": "HOLD", "reasoning_summary": "Mode fallback : pas de provider réel, '
     'décision par défaut HOLD."}'
@@ -228,10 +233,12 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
         assert experiment is not None
 
     # Le Team est composé des 5 mêmes modèles, en instances dédiées (gateway
-    # call séparé). Voir la section 2.2 du rapport.
+    # call séparé). L'ordre suit TEAM_SPEAKING_ORDER, pas CANDIDATES.
+    by_name = {name: (name, model, provider) for name, model, provider in CANDIDATES}
     team_members = [
         TeamMember(name=name, model=model, provider=provider)
-        for name, model, provider in CANDIDATES
+        for speaker in TEAM_SPEAKING_ORDER
+        for (name, model, provider) in [by_name[speaker]]
     ]
 
     return PaperTradingLoop(
