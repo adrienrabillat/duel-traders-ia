@@ -53,11 +53,11 @@ logger = logging.getLogger("run_paper")
 # =============================================================================
 
 CANDIDATES = [
-    ("Claude", "claude-opus-4-7", "anthropic"),
+    ("Claude", "claude-opus-4-8", "anthropic"),
     ("ChatGPT", "gpt-5.5", "openai"),
-    ("Mistral", "mistral-large-3", "mistral"),
-    ("Gemini", "gemini-3.1-pro", "gemini"),
-    ("Grok", "grok-4.20", "xai"),
+    ("Mistral", "mistral-large-latest", "mistral"),
+    ("Gemini", "gemini-2.5-pro", "gemini"),
+    ("Grok", "grok-4.3", "xai"),
 ]
 
 TEAM_PROVIDER = "anthropic"

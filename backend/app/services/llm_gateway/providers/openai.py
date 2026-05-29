@@ -34,17 +34,30 @@ class OpenAIProvider:
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         started = time.perf_counter()
+        # GPT-5 et les modèles reasoning (o1, o3, o4) utilisent
+        # max_completion_tokens et n'acceptent que temperature=1 (default).
+        is_reasoning_family = (
+            request.model.startswith("gpt-5")
+            or request.model.startswith("o1")
+            or request.model.startswith("o3")
+            or request.model.startswith("o4")
+        )
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_prompt},
+            ],
+            "timeout": request.timeout_seconds,
+        }
+        if is_reasoning_family:
+            kwargs["max_completion_tokens"] = request.max_tokens
+            # On laisse temperature par défaut (1)
+        else:
+            kwargs["max_tokens"] = request.max_tokens
+            kwargs["temperature"] = request.temperature
         try:
-            response = await self._client.chat.completions.create(
-                model=request.model,
-                messages=[
-                    {"role": "system", "content": request.system_prompt},
-                    {"role": "user", "content": request.user_prompt},
-                ],
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                timeout=request.timeout_seconds,
-            )
+            response = await self._client.chat.completions.create(**kwargs)
         except Exception as e:
             raise ProviderError(f"OpenAI API error: {e}") from e
 

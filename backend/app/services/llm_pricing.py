@@ -31,22 +31,27 @@ class ModelPrice(NamedTuple):
 # Quand un nouveau modèle sort, ajouter une ligne ici.
 PRICING: dict[str, ModelPrice] = {
     # --- Anthropic ---
+    "claude-opus-4-8": ModelPrice(Decimal("15.00"), Decimal("75.00")),
     "claude-opus-4-7": ModelPrice(Decimal("15.00"), Decimal("75.00")),
-    "claude-sonnet-4-7": ModelPrice(Decimal("3.00"), Decimal("15.00")),
+    "claude-opus-4-6": ModelPrice(Decimal("15.00"), Decimal("75.00")),
+    "claude-sonnet-4-6": ModelPrice(Decimal("3.00"), Decimal("15.00")),
     "claude-haiku-4-5": ModelPrice(Decimal("1.00"), Decimal("5.00")),
     "claude-haiku-4-5-20251001": ModelPrice(Decimal("1.00"), Decimal("5.00")),
     # --- OpenAI ---
     "gpt-5.5": ModelPrice(Decimal("5.00"), Decimal("20.00")),
     "gpt-5": ModelPrice(Decimal("5.00"), Decimal("20.00")),
+    "gpt-5-mini": ModelPrice(Decimal("0.25"), Decimal("2.00")),
     "gpt-4o": ModelPrice(Decimal("2.50"), Decimal("10.00")),
     "gpt-4o-mini": ModelPrice(Decimal("0.15"), Decimal("0.60")),
     # --- Mistral ---
-    "mistral-large-3": ModelPrice(Decimal("3.00"), Decimal("12.00")),
     "mistral-large-latest": ModelPrice(Decimal("3.00"), Decimal("12.00")),
+    "mistral-large-2512": ModelPrice(Decimal("3.00"), Decimal("12.00")),
+    "mistral-medium-latest": ModelPrice(Decimal("1.00"), Decimal("3.00")),
     # --- Google ---
-    "gemini-3.1-pro": ModelPrice(Decimal("3.00"), Decimal("12.00")),
     "gemini-2.5-pro": ModelPrice(Decimal("1.25"), Decimal("5.00")),
+    "gemini-2.5-flash": ModelPrice(Decimal("0.30"), Decimal("1.20")),
     # --- xAI ---
+    "grok-4.3": ModelPrice(Decimal("5.00"), Decimal("15.00")),
     "grok-4.20": ModelPrice(Decimal("5.00"), Decimal("15.00")),
     "grok-4": ModelPrice(Decimal("5.00"), Decimal("15.00")),
     # --- Mock / fallback ---

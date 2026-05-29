@@ -31,17 +31,23 @@ class XAIProvider:
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         started = time.perf_counter()
+        # Grok 4.x reasoning models : pas de temperature, max_completion_tokens
+        is_reasoning_family = request.model.startswith("grok-4") or "reasoning" in request.model
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_prompt},
+            ],
+            "timeout": request.timeout_seconds,
+        }
+        if is_reasoning_family:
+            kwargs["max_completion_tokens"] = request.max_tokens
+        else:
+            kwargs["max_tokens"] = request.max_tokens
+            kwargs["temperature"] = request.temperature
         try:
-            response = await self._client.chat.completions.create(
-                model=request.model,
-                messages=[
-                    {"role": "system", "content": request.system_prompt},
-                    {"role": "user", "content": request.user_prompt},
-                ],
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                timeout=request.timeout_seconds,
-            )
+            response = await self._client.chat.completions.create(**kwargs)
         except Exception as e:
             raise ProviderError(f"xAI API error: {e}") from e
 
