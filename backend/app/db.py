@@ -17,11 +17,17 @@ from app.config import get_settings
 
 
 def _normalize_url(url: str) -> str:
-    """Railway et certains hébergeurs utilisent encore postgres:// (deprecated).
-    SQLAlchemy 1.4+ exige postgresql://. On convertit silencieusement.
+    """Normalise l'URL Postgres pour SQLAlchemy.
+
+    - Railway / Heroku envoient encore parfois `postgres://` (deprecated) →
+      on convertit en `postgresql://`.
+    - On force le driver `psycopg` (psycopg v3) qu'on a en dépendance,
+      sinon SQLAlchemy essaie `psycopg2` par défaut et plante.
     """
     if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql://", 1)
+        url = url.replace("postgres://", "postgresql://", 1)
+    if url.startswith("postgresql://") and "+psycopg" not in url:
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
     return url
 
 
