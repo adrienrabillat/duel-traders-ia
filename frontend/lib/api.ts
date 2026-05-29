@@ -224,4 +224,9 @@ export const api = {
       "/admin/kill-switch",
       { method: "POST", headers: adminHeaders() }
     ),
+  forceWake: (candidateId: number) =>
+    request<{ ok: boolean; candidate?: string; cycle?: string; error?: string }>(
+      `/admin/candidates/${candidateId}/wake`,
+      { method: "POST", headers: adminHeaders() }
+    ),
 };

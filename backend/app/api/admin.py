@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -111,6 +111,23 @@ def stop_experiment(experiment_id: int, db: Session = DbDep) -> OperationOk:
 # =============================================================================
 # Candidates management
 # =============================================================================
+
+
+@router.post("/candidates/{candidate_id}/wake")
+async def force_wake_candidate(candidate_id: int, request: Request) -> dict:
+    """Force un cycle pour ce candidat, hors planning du scheduler.
+
+    Utile pour :
+    - relancer un candidat resté silencieux à cause d'une erreur (Claude debug)
+    - déclencher une délibération Team à la demande (démo)
+
+    Renvoie {ok, candidate, cycle} en succès, ou {ok: false, error: str} avec
+    le type d'exception exact en cas d'échec — pratique pour diagnostiquer en prod.
+    """
+    loop = getattr(request.app.state, "runtime_loop", None)
+    if loop is None:
+        raise HTTPException(503, "Runtime not started yet — try again in a few seconds.")
+    return await loop.wake_candidate(candidate_id)
 
 
 @router.post("/candidates", response_model=CandidateOut)

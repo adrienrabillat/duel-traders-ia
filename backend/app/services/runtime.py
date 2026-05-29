@@ -25,7 +25,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models import Experiment
+from app.models import Candidate, Experiment
 from app.services.binance_connector import BinanceConnector
 from app.services.episode_manager import EpisodeManager
 from app.services.info_clients import CoinSnapshot
@@ -194,6 +194,75 @@ class PaperTradingLoop:
                 db.rollback()
                 raise
         return result
+
+    # =========================================================================
+    # Force wake (admin / debug)
+    # =========================================================================
+
+    async def wake_candidate(self, candidate_id: int) -> dict:
+        """Force un cycle pour un candidat précis, hors planning du scheduler.
+
+        Utilisé par l'endpoint admin POST /admin/candidates/{id}/wake pour :
+        - relancer un candidat resté silencieux à cause d'une erreur passée
+        - déclencher une délibération Team à la demande (démo, debug)
+
+        Renvoie un dict :
+        - {"ok": True, "candidate": str, "cycle": "individual"|"team"}
+        - {"ok": False, "candidate": str, "error": "<type>: <message>"} si exception
+        """
+        from app.services.orchestrator import Orchestrator
+
+        with self.session_factory() as db:
+            candidate = db.get(Candidate, candidate_id)
+            if candidate is None:
+                return {"ok": False, "error": f"candidate {candidate_id} not found"}
+            experiment = db.get(Experiment, self.experiment_id)
+            if experiment is None:
+                return {"ok": False, "error": "experiment not found"}
+            episode_mgr = EpisodeManager(experiment)
+            if episode_mgr.is_finished():
+                return {"ok": False, "candidate": candidate.name, "error": "experiment finished"}
+
+            provider_name = self.provider_map.get(candidate.name)
+            if provider_name is None:
+                return {
+                    "ok": False,
+                    "candidate": candidate.name,
+                    "error": "no provider configured",
+                }
+
+            ledger = Ledger(db)
+            orchestrator = Orchestrator(
+                db,
+                experiment,
+                ledger,
+                self.gateway,
+                episode_mgr,
+                team_members=self.team_members,
+            )
+            try:
+                universe, prices, fear_greed = await self._fetch_market()
+                await orchestrator.run_candidate_cycle(
+                    candidate,
+                    provider_name=provider_name,
+                    market_universe=universe,
+                    current_prices=prices,
+                    fear_greed=fear_greed,
+                )
+                db.commit()
+                return {
+                    "ok": True,
+                    "candidate": candidate.name,
+                    "cycle": "team" if candidate.kind == "team" else "individual",
+                }
+            except Exception as e:
+                db.rollback()
+                logger.exception("Force-wake failed for %s", candidate.name)
+                return {
+                    "ok": False,
+                    "candidate": candidate.name,
+                    "error": f"{type(e).__name__}: {e}",
+                }
 
     # =========================================================================
     # Helpers

@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
 
             loop_instance = await asyncio.to_thread(bootstrap_and_build_loop)
             runtime_state["loop"] = loop_instance
+            app.state.runtime_loop = loop_instance  # exposé pour les routes admin
             logger.info("Runtime construit, démarrage de la boucle")
             await loop_instance.run_forever()
         except Exception:
