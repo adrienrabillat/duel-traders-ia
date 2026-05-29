@@ -45,6 +45,14 @@ IN_FLIGHT_STATUSES = (
 OPEN_POSITION_STATUSES = ("filled",)
 
 
+# Actions "préparatoires" : le candidat a fait un pas (poser une stratégie,
+# interroger l'oracle, envoyer un message) mais n'a pas pris de décision
+# finale de trading. Il doit pouvoir agir rapidement sur le résultat.
+# Le wake suit `preparation_interval_seconds` (60s par défaut) au lieu de
+# l'heure pleine du default_interval.
+PREPARATORY_ACTIONS = ("QUERY_ORACLE", "UPDATE_STRATEGY", "SEND_MESSAGE")
+
+
 # =============================================================================
 # Types
 # =============================================================================
@@ -80,15 +88,19 @@ class Scheduler:
         episode_manager: EpisodeManager,
         default_interval_seconds: int = 3600,
         max_sleep_seconds: int = 86400,
+        preparation_interval_seconds: int = 60,
     ) -> None:
         if default_interval_seconds <= 0:
             raise ValueError("default_interval_seconds must be > 0")
         if max_sleep_seconds < default_interval_seconds:
             raise ValueError("max_sleep_seconds must be >= default_interval_seconds")
+        if preparation_interval_seconds <= 0:
+            raise ValueError("preparation_interval_seconds must be > 0")
         self.db = db
         self.episodes = episode_manager
         self.default_interval = default_interval_seconds
         self.max_sleep = max_sleep_seconds
+        self.preparation_interval = preparation_interval_seconds
 
     # =========================================================================
     # API principale
@@ -122,12 +134,22 @@ class Scheduler:
                     return WakeDecision(True, "scheduled_by_model")
                 return WakeDecision(False, "waiting_scheduled")
 
-        # 5) Hourly default (ou first run)
+        # 5) First run
         if last is None:
             return WakeDecision(True, "first_run")
 
         last_at = _to_utc(last.created_at) or now
         elapsed = (now - last_at).total_seconds()
+
+        # 6) Action préparatoire (QUERY_ORACLE, UPDATE_STRATEGY, SEND_MESSAGE)
+        # → wake rapide (60s) pour que le candidat puisse agir sur le résultat.
+        action_kind = (last.parsed_action or {}).get("action")
+        if action_kind in PREPARATORY_ACTIONS:
+            if elapsed >= self.preparation_interval:
+                return WakeDecision(True, f"after_{action_kind.lower()}")
+            return WakeDecision(False, "preparing")
+
+        # 7) Hourly default
         if elapsed >= self.default_interval:
             return WakeDecision(True, "hourly_default")
         return WakeDecision(False, "within_interval")

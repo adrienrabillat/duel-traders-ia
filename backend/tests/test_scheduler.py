@@ -106,6 +106,50 @@ class TestHourlyDefault:
         assert wake.reason == "hourly_default"
 
 
+class TestPreparatoryActions:
+    """Actions préparatoires (QUERY_ORACLE, UPDATE_STRATEGY, SEND_MESSAGE)
+    déclenchent un wake rapide (60s par défaut) au lieu d'attendre 1h."""
+
+    def test_query_oracle_recent_no_wake(self, db, claude: Candidate) -> None:
+        now = datetime.now(timezone.utc)
+        experiment = _make_experiment(db, now - timedelta(hours=2))
+        _add_decision(
+            db, claude,
+            action={"action": "QUERY_ORACLE", "query": "BTC trend"},
+            created_at=now - timedelta(seconds=30),
+        )
+        scheduler = Scheduler(db, EpisodeManager(experiment))
+        wake = scheduler.should_wake(claude, now)
+        assert not wake.should_wake
+        assert wake.reason == "preparing"
+
+    def test_query_oracle_after_60s_wakes(self, db, claude: Candidate) -> None:
+        now = datetime.now(timezone.utc)
+        experiment = _make_experiment(db, now - timedelta(hours=2))
+        _add_decision(
+            db, claude,
+            action={"action": "QUERY_ORACLE", "query": "BTC trend"},
+            created_at=now - timedelta(seconds=90),
+        )
+        scheduler = Scheduler(db, EpisodeManager(experiment))
+        wake = scheduler.should_wake(claude, now)
+        assert wake.should_wake
+        assert wake.reason == "after_query_oracle"
+
+    def test_update_strategy_after_60s_wakes(self, db, claude: Candidate) -> None:
+        now = datetime.now(timezone.utc)
+        experiment = _make_experiment(db, now - timedelta(hours=2))
+        _add_decision(
+            db, claude,
+            action={"action": "UPDATE_STRATEGY", "strategy": {}},
+            created_at=now - timedelta(seconds=90),
+        )
+        scheduler = Scheduler(db, EpisodeManager(experiment))
+        wake = scheduler.should_wake(claude, now)
+        assert wake.should_wake
+        assert wake.reason == "after_update_strategy"
+
+
 class TestScheduledByModel:
     def test_hold_future_no_wake(self, db, claude: Candidate) -> None:
         now = datetime.now(timezone.utc)
