@@ -69,30 +69,40 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     engine = get_engine()
     Base.metadata.create_all(engine)
 
-    runtime_task: asyncio.Task | None = None
-    runtime_loop = None
-    if _run_runtime_in_background():
-        # Import différé : run_paper a des dépendances que les tests n'ont pas
-        from scripts.run_paper import bootstrap_and_build_loop
+    runtime_state: dict[str, object] = {}
 
+    async def _start_runtime_deferred() -> None:
+        """Construction + démarrage du runtime, déporté hors du chemin critique
+        du lifespan pour ne pas bloquer le healthcheck."""
         try:
-            runtime_loop = bootstrap_and_build_loop()
-            runtime_task = asyncio.create_task(runtime_loop.run_forever())
-            logger.info("Runtime de paper trading démarré en background")
+            # Import différé : run_paper a des dépendances que les tests n'ont pas
+            from scripts.run_paper import bootstrap_and_build_loop
+
+            loop_instance = await asyncio.to_thread(bootstrap_and_build_loop)
+            runtime_state["loop"] = loop_instance
+            logger.info("Runtime construit, démarrage de la boucle")
+            await loop_instance.run_forever()
         except Exception:
-            logger.exception("Impossible de démarrer le runtime en background")
+            logger.exception("Runtime en arrière-plan a planté")
+
+    runtime_task: asyncio.Task | None = None
+    if _run_runtime_in_background():
+        runtime_task = asyncio.create_task(_start_runtime_deferred())
+        logger.info("Tâche runtime créée (démarrage différé)")
 
     try:
         yield
     finally:
-        if runtime_loop is not None:
-            runtime_loop.stop()
+        loop_instance = runtime_state.get("loop")
+        if loop_instance is not None:
+            loop_instance.stop()  # type: ignore[attr-defined]
         if runtime_task is not None:
             try:
                 await asyncio.wait_for(runtime_task, timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("Runtime task n'a pas terminé proprement, cancel")
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 runtime_task.cancel()
+            except Exception:
+                logger.exception("Erreur durant l'arrêt du runtime task")
 
 
 def create_app() -> FastAPI:
