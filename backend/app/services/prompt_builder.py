@@ -55,17 +55,25 @@ class CycleContext:
 SYSTEM_PROMPT_TEMPLATE = """Tu es {candidate_name}, l'un des candidats de l'expérience « Les Anges de l'IA ».
 
 CONCEPT DE L'EXPÉRIENCE.
-Tu participes à une simulation de trading crypto pendant 14 épisodes (1 épisode = 1 jour).
-Tu n'es PAS en train de conseiller un humain ; c'est un jeu d'observation comportementale.
-Tes décisions sont validées par une équipe humaine avant exécution sur Binance Spot réel.
+Tu participes à une simulation de trading crypto en paper trading pendant 14 épisodes
+(1 épisode = 1 jour). Les prix utilisés sont les VRAIS prix spot temps réel (CoinGecko),
+mais l'argent est virtuel. Tu n'es PAS en train de conseiller un humain ; c'est un jeu
+d'observation comportementale.
 
 RÈGLES DU JEU.
-- Capital initial : 10 USDC.
-- Paires autorisées : uniquement *USDC (BTCUSDC, SOLUSDC, etc.).
+- Capital initial : 1000 USDC (virtuel, mais qui suit le vrai marché).
+- Paires autorisées : BTCUSDC, ETHUSDC, SOLUSDC (les seules tradables côté Spot).
 - Spot uniquement, pas de levier, pas de short.
 - Tous les ordres ont un stop-loss et un take-profit obligatoires (OCO).
 - Frais : 0,1% par trade.
 - Minimum d'ordre : 5 USDC.
+- Tes ordres s'exécutent automatiquement au prix de marché (paper) — pas de validation
+  manuelle.
+
+ATTENTION CAPITAL.
+Le solde USDC libre et tes positions courantes te sont donnés à chaque tour. Vérifie-les
+avant de décider : impossible de placer un ordre supérieur à ton USDC libre, ou de
+vendre plus que ce que tu détiens. Garde toujours une marge de sécurité.
 
 LIBERTÉS ACCORDÉES.
 À partir de l'épisode 3, tu pourras communiquer avec les autres candidats.
@@ -110,19 +118,39 @@ def build_user_prompt(ctx: CycleContext) -> str:
         parts.append("Tu joues en solo (pour l'instant).")
     parts.append("")
 
-    # Portefeuille
-    parts.append("PORTEFEUILLE COURANT :")
-    parts.append(f"  USDC libre : {ctx.wallet.usdc_balance}")
+    # Portefeuille avec récap chiffré clair
+    parts.append("TON PORTEFEUILLE :")
+    parts.append(f"  Capital initial : {ctx.wallet.initial_balance} USDC")
+    parts.append(f"  USDC libre      : {ctx.wallet.usdc_balance} USDC")
+    positions_value = Decimal("0")
     if ctx.wallet.positions:
+        parts.append("  Positions ouvertes :")
         for p in ctx.wallet.positions:
             current = ctx.current_prices.get(p.symbol, p.avg_cost_usdc)
             mtm = p.quantity * current
+            pnl = (current - p.avg_cost_usdc) * p.quantity
+            pnl_pct = (
+                ((current - p.avg_cost_usdc) / p.avg_cost_usdc * Decimal("100"))
+                if p.avg_cost_usdc > 0 else Decimal("0")
+            )
+            positions_value += mtm
             parts.append(
-                f"  {p.symbol} : qty={p.quantity}, avg_cost={p.avg_cost_usdc}, "
-                f"current_price={current}, mtm={mtm}"
+                f"    {p.symbol} : qty={p.quantity:.6f}  "
+                f"avg_cost={p.avg_cost_usdc:.2f}  current={current:.2f}  "
+                f"mtm={mtm:.2f}  pnl={pnl:+.2f} ({pnl_pct:+.2f}%)"
             )
     else:
         parts.append("  Aucune position ouverte.")
+    total_value = ctx.wallet.usdc_balance + positions_value
+    total_pnl = total_value - ctx.wallet.initial_balance
+    roi_pct = (
+        (total_pnl / ctx.wallet.initial_balance * Decimal("100"))
+        if ctx.wallet.initial_balance > 0 else Decimal("0")
+    )
+    parts.append(
+        f"  Total mark-to-market : {total_value:.2f} USDC  "
+        f"(P&L {total_pnl:+.2f} USDC, ROI {roi_pct:+.2f}%)"
+    )
     parts.append("")
 
     # Stratégie

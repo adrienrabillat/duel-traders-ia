@@ -362,7 +362,11 @@ class Orchestrator:
             quote_amount_usdc=action.quote_amount_usdc,
             stop_loss_pct=action.stop_loss_pct,
             take_profit_pct=action.take_profit_pct,
-            status="pending_validation",
+            # Paper trading : on saute la validation manuelle, l'ordre s'exécute
+            # au prochain tick. Pour live trading il faudra repasser à
+            # "pending_validation" et ré-activer le flow d'approve.
+            status="auto_approved",
+            validated_at=datetime.now(timezone.utc),
             decision_price=price_at_decision,
         )
         self.db.add(order)
@@ -384,7 +388,9 @@ class Orchestrator:
             quote_amount_usdc=(quantity * price) if price is not None else Decimal("0"),
             stop_loss_pct=None,
             take_profit_pct=None,
-            status="pending_validation",
+            # idem PLACE_ORDER : exécution auto en paper
+            status="auto_approved",
+            validated_at=datetime.now(timezone.utc),
             decision_price=price,
             fill_quantity=quantity,
         )

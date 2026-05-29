@@ -93,7 +93,10 @@ class TestPlaceOrderFlow:
         assert result.order_id is not None
 
         order = db.get(OrderRecord, result.order_id)
-        assert order.status == "pending_validation"
+        # Paper trading : pas de validation manuelle, l'ordre est directement
+        # auto_approved et s'exécute au tick suivant.
+        assert order.status == "auto_approved"
+        assert order.validated_at is not None
         assert order.side == "BUY"
         assert order.symbol == "BTCUSDC"
         assert order.quote_amount_usdc == Decimal("8.50")
