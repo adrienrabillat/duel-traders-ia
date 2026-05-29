@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.models import Candidate, Experiment
 from app.services.binance_connector import BinanceConnector
 from app.services.episode_manager import EpisodeManager
-from app.services.info_clients import CoinSnapshot
+from app.services.info_clients import CoinSnapshot, TavilyClient
 from app.services.ledger import Ledger
 from app.services.llm_gateway import LLMGateway
 from app.services.orchestrator import Orchestrator
@@ -89,6 +89,7 @@ class PaperTradingLoop:
         | None = None,
         tick_seconds: int = 30,
         team_members: list[TeamMember] | None = None,
+        tavily: TavilyClient | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.experiment_id = experiment.id
@@ -98,6 +99,7 @@ class PaperTradingLoop:
         self.market_provider = market_provider
         self.tick_seconds = tick_seconds
         self.team_members = team_members or []
+        self.tavily = tavily
         self._stopped = asyncio.Event()
 
     # =========================================================================
@@ -163,6 +165,7 @@ class PaperTradingLoop:
                     ledger,
                     self.gateway,
                     episode_mgr,
+                    tavily=self.tavily,
                     team_members=self.team_members,
                 )
                 ready = scheduler.candidates_ready_to_wake()
@@ -238,6 +241,7 @@ class PaperTradingLoop:
                 ledger,
                 self.gateway,
                 episode_mgr,
+                tavily=self.tavily,
                 team_members=self.team_members,
             )
             try:

@@ -25,7 +25,7 @@ from app.config import get_settings
 from app.db import get_engine, get_session_factory
 from app.models import Base, Experiment
 from app.services.binance_connector import PaperBinance
-from app.services.info_clients import CoinGeckoClient, CoinSnapshot
+from app.services.info_clients import CoinGeckoClient, CoinSnapshot, TavilyClient
 from app.services.ledger import Ledger
 from app.services.llm_gateway import (
     AnthropicProvider,
@@ -265,6 +265,20 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
         for (name, model, provider) in [by_name[speaker]]
     ]
 
+    # Tavily : oracle de recherche web pour QUERY_ORACLE. Si la clé n'est
+    # pas configurée, on laisse None → les questions sont persistées sans
+    # réponse (et le LLM verra qu'il n'a rien obtenu).
+    tavily_key = get_settings().tavily_api_key
+    tavily: TavilyClient | None = None
+    if tavily_key:
+        try:
+            tavily = TavilyClient(tavily_key)
+            logger.info("Tavily : REAL (clé chargée)")
+        except Exception as e:
+            logger.warning("Tavily init failed (%s) — oracle muet", e)
+    else:
+        logger.warning("Tavily : pas de clé, oracle muet")
+
     return PaperTradingLoop(
         session_factory=factory,
         experiment=experiment,
@@ -274,6 +288,7 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
         market_provider=make_live_market_provider(binance),
         tick_seconds=get_settings().runtime_tick_seconds,
         team_members=team_members,
+        tavily=tavily,
     )
 
 
