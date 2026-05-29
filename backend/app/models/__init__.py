@@ -9,6 +9,7 @@ from app.models.experiment_models import (
     OracleQuery,
     OrderRecord,
     Strategy,
+    TeamDeliberation,
 )
 from app.models.ledger_models import (
     Base,
@@ -30,6 +31,7 @@ __all__ = [
     "OrderRecord",
     "Position",
     "Strategy",
+    "TeamDeliberation",
     "Trade",
     "Wallet",
 ]

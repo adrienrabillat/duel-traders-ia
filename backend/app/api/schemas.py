@@ -190,6 +190,36 @@ class CostSummary(BaseModel):
 
 
 # =============================================================================
+# Team deliberation
+# =============================================================================
+
+
+class DeliberationTurnOut(_Base):
+    id: int
+    turn_number: int
+    speaker_name: str
+    speaker_model: str
+    speaker_provider: str
+    message_to_team: str
+    proposed_action: dict | None
+    proposed_action_kind: str | None
+    parse_error: str | None
+    tokens_input: int
+    tokens_output: int
+    latency_ms: int
+    created_at: datetime
+
+
+class DeliberationOut(BaseModel):
+    decision_id: int
+    episode_number: int
+    created_at: datetime
+    final_action: dict | None
+    turns: list[DeliberationTurnOut]
+    vote_counts: dict[str, int]
+
+
+# =============================================================================
 # Admin
 # =============================================================================
 

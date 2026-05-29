@@ -10,6 +10,7 @@ import {
   type Trade,
 } from "@/lib/api";
 import { DecisionDrawer } from "./DecisionDrawer";
+import { TeamDeliberation } from "./TeamDeliberation";
 
 const fmtTime = (iso: string) =>
   new Date(iso).toLocaleString("fr-FR", {
@@ -24,6 +25,7 @@ const fmtNum = (v: string | number, decimals = 2) =>
 
 export function CandidateDetail({ candidateId }: { candidateId: string }) {
   const [openDecision, setOpenDecision] = useState<Decision | null>(null);
+  const [expandedDelib, setExpandedDelib] = useState<number | null>(null);
 
   const { data: candidate, error: errCand } = useSWR<Candidate>(
     ["candidate", candidateId],
@@ -150,7 +152,7 @@ export function CandidateDetail({ candidateId }: { candidateId: string }) {
       {/* Decisions timeline */}
       <div className="card">
         <div className="text-xs text-muted uppercase tracking-wide mb-3">
-          Décisions ({decisions?.length || 0})
+          {candidate.kind === "team" ? "Délibérations du conseil" : "Décisions"} ({decisions?.length || 0})
         </div>
         {!decisions ? (
           <div className="text-muted text-sm">Chargement…</div>
@@ -162,10 +164,16 @@ export function CandidateDetail({ candidateId }: { candidateId: string }) {
               const action = d.parsed_action as Record<string, unknown> | null;
               const kind = (action?.action as string) ?? "—";
               const summary = (action?.reasoning_summary as string) ?? "";
+              const isTeam = candidate.kind === "team";
+              const isExpanded = isTeam && expandedDelib === d.id;
               return (
-                <li key={d.id}>
+                <li key={d.id} className={isExpanded ? "py-4" : ""}>
                   <button
-                    onClick={() => setOpenDecision(d)}
+                    onClick={() =>
+                      isTeam
+                        ? setExpandedDelib(isExpanded ? null : d.id)
+                        : setOpenDecision(d)
+                    }
                     className="w-full text-left py-3 px-1 hover:bg-black/[0.02] rounded-lg transition flex gap-3"
                   >
                     <div className="text-xs text-muted shrink-0 w-24 tabular-nums">
@@ -179,17 +187,26 @@ export function CandidateDetail({ candidateId }: { candidateId: string }) {
                           {kind}
                         </span>
                         <span className="text-xs text-muted">
-                          {d.tokens_input}↑ {d.tokens_output}↓ tok · {d.latency_ms}ms
+                          {isTeam
+                            ? `${d.attempt_count} interventions · ${d.tokens_input + d.tokens_output} tok`
+                            : `${d.tokens_input}↑ ${d.tokens_output}↓ tok · ${d.latency_ms}ms`}
                         </span>
                       </div>
-                      {summary && (
+                      {summary && !isExpanded && (
                         <div className="text-sm text-ink/70 mt-1 line-clamp-2">
                           {summary}
                         </div>
                       )}
                     </div>
-                    <div className="text-muted shrink-0 self-center text-sm">›</div>
+                    <div className="text-muted shrink-0 self-center text-sm">
+                      {isTeam ? (isExpanded ? "▾" : "▸") : "›"}
+                    </div>
                   </button>
+                  {isExpanded && (
+                    <div className="mt-3 pl-1">
+                      <TeamDeliberation decisionId={d.id} />
+                    </div>
+                  )}
                 </li>
               );
             })}

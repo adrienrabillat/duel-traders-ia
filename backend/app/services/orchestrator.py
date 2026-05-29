@@ -36,6 +36,7 @@ from app.models import (
     OracleQuery,
     OrderRecord,
     Strategy,
+    TeamDeliberation,
     Trade,
 )
 from app.services.episode_manager import ChannelPermissions, EpisodeManager
@@ -54,6 +55,10 @@ from app.services.prompt_builder import (
     CycleContext,
     build_system_prompt,
     build_user_prompt,
+)
+from app.services.team_council import (
+    TeamMember,
+    run_council_deliberation,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,6 +96,7 @@ class Orchestrator:
         gateway: LLMGateway,
         episode_manager: EpisodeManager,
         tavily: TavilyClient | None = None,
+        team_members: list[TeamMember] | None = None,
     ) -> None:
         self.db = db
         self.experiment = experiment
@@ -98,6 +104,7 @@ class Orchestrator:
         self.gateway = gateway
         self.episodes = episode_manager
         self.tavily = tavily
+        self.team_members = team_members or []
 
     # =========================================================================
     # Cycle principal
@@ -130,6 +137,16 @@ class Orchestrator:
 
         system_prompt = build_system_prompt(candidate)
         user_prompt = build_user_prompt(ctx)
+
+        # Branche le flux team si applicable
+        if candidate.kind == "team" and self.team_members:
+            return await self._run_team_cycle(
+                candidate=candidate,
+                ctx=ctx,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                now=now,
+            )
 
         request = LLMRequest(
             candidate_name=candidate.name,
@@ -434,6 +451,85 @@ class Orchestrator:
             record.error = "No oracle client configured"
         self.db.flush()
         return record
+
+    # =========================================================================
+    # Team deliberation cycle
+    # =========================================================================
+
+    async def _run_team_cycle(
+        self,
+        candidate: Candidate,
+        ctx: CycleContext,
+        system_prompt: str,
+        user_prompt: str,
+        now: datetime,
+    ) -> CycleResult:
+        """Lance une délibération du conseil et exécute l'action gagnante."""
+        history, winning_action, outcome = await run_council_deliberation(
+            members=self.team_members,
+            gateway=self.gateway,
+            base_user_prompt=user_prompt,
+        )
+
+        # Agrégat des métriques d'usage de tous les membres
+        total_in = sum(h.tokens_input for h in history)
+        total_out = sum(h.tokens_output for h in history)
+        total_latency = sum(h.latency_ms for h in history)
+
+        decision = Decision(
+            candidate_id=candidate.id,
+            episode_number=ctx.episode_number,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            raw_response=(
+                "Team deliberation — "
+                f"{len(history)} interventions, "
+                f"votes: {outcome.counts}, "
+                f"winner: {outcome.winning_kind or 'HOLD (no majority)'}"
+            ),
+            parsed_action=winning_action.model_dump(mode="json"),
+            parse_error=None,
+            provider="team-council",
+            model=candidate.model,
+            tokens_input=total_in,
+            tokens_output=total_out,
+            latency_ms=total_latency,
+            attempt_count=len(history),
+        )
+        self.db.add(decision)
+        self.db.flush()
+
+        # Persiste chaque intervention
+        for h in history:
+            self.db.add(
+                TeamDeliberation(
+                    decision_id=decision.id,
+                    turn_number=h.turn_number,
+                    speaker_name=h.speaker_name,
+                    speaker_model=h.speaker_model,
+                    speaker_provider=h.speaker_provider,
+                    message_to_team=h.message_to_team,
+                    proposed_action=(
+                        h.proposed_action.model_dump(mode="json")
+                        if h.proposed_action is not None
+                        else None
+                    ),
+                    proposed_action_kind=h.proposed_action_kind,
+                    parse_error=h.parse_error,
+                    tokens_input=h.tokens_input,
+                    tokens_output=h.tokens_output,
+                    latency_ms=h.latency_ms,
+                )
+            )
+
+        # Marque les EpisodeEvents comme délivrés
+        for ev in ctx.pending_events:
+            ev.delivered_at = now
+
+        # Dispatch l'action gagnante
+        result = await self._dispatch_action(decision, winning_action, ctx)
+        self.db.flush()
+        return result
 
     @staticmethod
     def _parse_next_wake(value: str | None) -> datetime | None:

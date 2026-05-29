@@ -14,6 +14,8 @@ from app.api.schemas import (
     CostSummary,
     CostSummaryEntry,
     DecisionOut,
+    DeliberationOut,
+    DeliberationTurnOut,
     ExperimentOut,
     LeaderboardEntry,
     MessageOut,
@@ -33,6 +35,7 @@ from app.models import (
     OracleQuery,
     OrderRecord,
     Strategy,
+    TeamDeliberation,
     Trade,
 )
 from app.services.episode_manager import EpisodeManager
@@ -287,6 +290,43 @@ def get_recent_orders(
         ).scalars()
     )
     return [OrderOut.model_validate(o) for o in orders]
+
+
+@router.get("/decisions/{decision_id}/deliberations", response_model=DeliberationOut)
+def get_deliberation(decision_id: int, db: Session = DbDep) -> DeliberationOut:
+    """Retourne le fil complet d'une délibération du Team pour une décision donnée.
+
+    Renvoie 404 si la décision n'existe pas ou n'est pas une décision du conseil
+    (auquel cas il n'y a pas de fil).
+    """
+    decision = db.get(Decision, decision_id)
+    if decision is None:
+        raise HTTPException(404, "Decision not found")
+    turns = list(
+        db.execute(
+            select(TeamDeliberation)
+            .where(TeamDeliberation.decision_id == decision_id)
+            .order_by(TeamDeliberation.turn_number, TeamDeliberation.created_at)
+        ).scalars()
+    )
+    if not turns:
+        raise HTTPException(404, "No deliberation for this decision")
+    counts: dict[str, int] = {}
+    # Dernier vote par membre (on peut avoir plusieurs tours)
+    last_vote: dict[str, str] = {}
+    for t in turns:
+        if t.proposed_action_kind:
+            last_vote[t.speaker_name] = t.proposed_action_kind
+    for kind in last_vote.values():
+        counts[kind] = counts.get(kind, 0) + 1
+    return DeliberationOut(
+        decision_id=decision_id,
+        episode_number=decision.episode_number,
+        created_at=decision.created_at,
+        final_action=decision.parsed_action,
+        turns=[DeliberationTurnOut.model_validate(t) for t in turns],
+        vote_counts=counts,
+    )
 
 
 @router.get("/costs", response_model=CostSummary)

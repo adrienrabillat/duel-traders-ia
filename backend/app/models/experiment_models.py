@@ -262,6 +262,40 @@ class OracleQuery(Base):
 # =============================================================================
 
 
+class TeamDeliberation(Base):
+    """Trace tour par tour d'une délibération du candidat Team.
+
+    À chaque cycle du candidat équipe, on appelle séquentiellement les 5
+    modèles (Claude, ChatGPT, Mistral, Gemini, Grok). Chacun produit un
+    message adressé au conseil + une action proposée. La majorité simple
+    sur l'action_kind décide.
+    """
+
+    __tablename__ = "team_deliberations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    decision_id: Mapped[int] = mapped_column(
+        ForeignKey("decisions.id", ondelete="CASCADE"), nullable=False
+    )
+    turn_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    speaker_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    speaker_model: Mapped[str] = mapped_column(String(100), nullable=False)
+    speaker_provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    message_to_team: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_action: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    proposed_action_kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tokens_input: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_output: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_team_deliberations_decision", "decision_id"),
+        Index("ix_team_deliberations_decision_turn", "decision_id", "turn_number"),
+    )
+
+
 class EpisodeEvent(Base):
     """Annonce de jalon ou injection de Twist dans le prompt d'un (ou plusieurs) candidats."""
 

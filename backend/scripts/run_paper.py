@@ -39,6 +39,7 @@ from app.services.llm_gateway import (
 )
 from app.services.llm_gateway.base import ProviderError
 from app.services.runtime import PaperTradingLoop, static_market_provider
+from app.services.team_council import TeamMember
 
 logging.basicConfig(
     level=logging.INFO,
@@ -205,6 +206,13 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
         experiment = db.get(Experiment, experiment_id)
         assert experiment is not None
 
+    # Le Team est composé des 5 mêmes modèles, en instances dédiées (gateway
+    # call séparé). Voir la section 2.2 du rapport.
+    team_members = [
+        TeamMember(name=name, model=model, provider=provider)
+        for name, model, provider in CANDIDATES
+    ]
+
     return PaperTradingLoop(
         session_factory=factory,
         experiment=experiment,
@@ -213,6 +221,7 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
         provider_map=provider_map,
         market_provider=static_market_provider(universe, prices, fear_greed=55),
         tick_seconds=get_settings().runtime_tick_seconds,
+        team_members=team_members,
     )
 
 

@@ -34,6 +34,7 @@ from app.services.llm_gateway import LLMGateway
 from app.services.orchestrator import Orchestrator
 from app.services.order_executor import OrderExecutor
 from app.services.scheduler import Scheduler
+from app.services.team_council import TeamMember
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ class PaperTradingLoop:
         ]
         | None = None,
         tick_seconds: int = 30,
+        team_members: list[TeamMember] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.experiment_id = experiment.id
@@ -95,6 +97,7 @@ class PaperTradingLoop:
         self.provider_map = provider_map
         self.market_provider = market_provider
         self.tick_seconds = tick_seconds
+        self.team_members = team_members or []
         self._stopped = asyncio.Event()
 
     # =========================================================================
@@ -154,7 +157,14 @@ class PaperTradingLoop:
                 universe, prices, fear_greed = await self._fetch_market()
 
                 # 5. Run cycles for candidates ready
-                orchestrator = Orchestrator(db, experiment, ledger, self.gateway, episode_mgr)
+                orchestrator = Orchestrator(
+                    db,
+                    experiment,
+                    ledger,
+                    self.gateway,
+                    episode_mgr,
+                    team_members=self.team_members,
+                )
                 ready = scheduler.candidates_ready_to_wake()
                 for candidate, wake in ready:
                     provider_name = self.provider_map.get(candidate.name)

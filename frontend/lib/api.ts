@@ -162,6 +162,31 @@ export type Decision = {
   created_at: string;
 };
 
+export type DeliberationTurn = {
+  id: number;
+  turn_number: number;
+  speaker_name: string;
+  speaker_model: string;
+  speaker_provider: string;
+  message_to_team: string;
+  proposed_action: Record<string, unknown> | null;
+  proposed_action_kind: string | null;
+  parse_error: string | null;
+  tokens_input: number;
+  tokens_output: number;
+  latency_ms: number;
+  created_at: string;
+};
+
+export type Deliberation = {
+  decision_id: number;
+  episode_number: number;
+  created_at: string;
+  final_action: Record<string, unknown> | null;
+  turns: DeliberationTurn[];
+  vote_counts: Record<string, number>;
+};
+
 export const api = {
   getExperiment: () => request<Experiment>("/api/experiment"),
   getCandidates: () => request<Candidate[]>("/api/candidates"),
@@ -172,6 +197,8 @@ export const api = {
     request<Decision[]>(`/api/candidates/${id}/decisions?limit=${limit}`),
   getCandidateTrades: (id: number | string, limit = 50) =>
     request<Trade[]>(`/api/candidates/${id}/trades?limit=${limit}`),
+  getDeliberation: (decisionId: number | string) =>
+    request<Deliberation>(`/api/decisions/${decisionId}/deliberations`),
   getLeaderboard: () => request<LeaderboardEntry[]>("/api/leaderboard"),
   getRecentOrders: (limit = 30) =>
     request<Order[]>(`/api/orders/recent?limit=${limit}`),
