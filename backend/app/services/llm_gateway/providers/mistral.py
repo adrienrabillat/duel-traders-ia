@@ -25,6 +25,9 @@ class MistralProvider:
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         started = time.perf_counter()
+        # On force le mode JSON natif : Mistral renvoyait parfois 26 tokens
+        # tronqués qui faisaient échouer le parse côté gateway. Le mode
+        # json_object garantit une réponse JSON valide ou une erreur claire.
         try:
             response = await self._client.chat.complete_async(
                 model=request.model,
@@ -34,6 +37,7 @@ class MistralProvider:
                 ],
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
+                response_format={"type": "json_object"},
             )
         except Exception as e:
             raise ProviderError(f"Mistral API error: {e}") from e
