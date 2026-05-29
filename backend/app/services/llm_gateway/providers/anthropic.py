@@ -48,19 +48,29 @@ class AnthropicProvider:
             self._client = AsyncAnthropic(api_key=api_key)
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        """Appelle l'API Anthropic Messages."""
+        """Appelle l'API Anthropic Messages.
+
+        Claude Opus 4.x et autres reasoning models n'acceptent pas le paramètre
+        `temperature` (l'API renvoie 400 invalid_request_error). On l'omet pour
+        ces familles, on le passe pour Sonnet/Haiku.
+        """
         started = time.perf_counter()
+        # Reasoning models : opus-4.x et au-delà refusent temperature
+        is_reasoning_family = (
+            "opus-4" in request.model
+            or "opus-5" in request.model
+        )
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "max_tokens": request.max_tokens,
+            "system": request.system_prompt,
+            "messages": [{"role": "user", "content": request.user_prompt}],
+            "timeout": request.timeout_seconds,
+        }
+        if not is_reasoning_family:
+            kwargs["temperature"] = request.temperature
         try:
-            message = await self._client.messages.create(
-                model=request.model,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                system=request.system_prompt,
-                messages=[
-                    {"role": "user", "content": request.user_prompt},
-                ],
-                timeout=request.timeout_seconds,
-            )
+            message = await self._client.messages.create(**kwargs)
         except Exception as e:
             raise ProviderError(f"Anthropic API error: {e}") from e
 
