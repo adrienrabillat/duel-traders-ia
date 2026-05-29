@@ -242,4 +242,23 @@ export const api = {
       method: "POST",
       headers: adminHeaders(),
     }),
+  resetAll: (newInitialBalanceUsdc?: string) => {
+    const qs = newInitialBalanceUsdc ? `?new_initial_balance_usdc=${newInitialBalanceUsdc}` : "";
+    return request<{ ok: boolean; count: number; candidates: Array<{ candidate: string; cleared: Record<string, number>; wallet_usdc: string }> }>(
+      `/admin/reset-all${qs}`,
+      { method: "POST", headers: adminHeaders() }
+    );
+  },
+  pauseExperiment: () =>
+    request<{
+      ok: boolean;
+      status: string;
+      orders_cancelled: number;
+      positions_liquidated: Array<{ symbol: string; quantity?: string; price?: string; error?: string }>;
+    }>("/admin/pause", { method: "POST", headers: adminHeaders() }),
+  resumeExperiment: () =>
+    request<{ ok: boolean; status: string; experiment_id: number }>(
+      "/admin/resume",
+      { method: "POST", headers: adminHeaders() }
+    ),
 };

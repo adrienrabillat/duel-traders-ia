@@ -28,6 +28,51 @@ class InfoClientError(Exception):
 
 
 # =============================================================================
+# Binance public ticker (live paper trading)
+# =============================================================================
+
+
+class BinancePublicClient:
+    """Client minimaliste pour les endpoints publics de Binance Spot.
+
+    Pas besoin de clé API : on lit juste les prix et le ticker 24h.
+    Documentation : https://developers.binance.com/docs/binance-spot-api-docs/
+    """
+
+    BASE_URL = "https://api.binance.com"
+
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(
+            base_url=self.BASE_URL, timeout=15.0
+        )
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def get_spot_prices(self, symbols: list[str]) -> dict[str, Decimal]:
+        """Renvoie le dernier prix spot pour chaque symbole (ex: BTCUSDC)."""
+        params = [("symbols", "[" + ",".join(f'"{s}"' for s in symbols) + "]")]
+        try:
+            r = await self._client.get("/api/v3/ticker/price", params=params)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise InfoClientError(f"Binance price fetch failed: {e}") from e
+        return {item["symbol"]: Decimal(item["price"]) for item in r.json()}
+
+    async def get_24h_tickers(self, symbols: list[str]) -> dict[str, dict]:
+        """Renvoie les tickers 24h (price, volume, change %) pour chaque symbole."""
+        params = [("symbols", "[" + ",".join(f'"{s}"' for s in symbols) + "]")]
+        try:
+            r = await self._client.get("/api/v3/ticker/24hr", params=params)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise InfoClientError(f"Binance 24h ticker fetch failed: {e}") from e
+        return {item["symbol"]: item for item in r.json()}
+
+
+# =============================================================================
 # CoinGecko
 # =============================================================================
 

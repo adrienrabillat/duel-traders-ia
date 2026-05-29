@@ -111,9 +111,11 @@ class Scheduler:
     ) -> WakeDecision:
         now = now or datetime.now(timezone.utc)
 
-        # 1) Expérience finie
+        # 1) Expérience finie ou en pause
         if self.episodes.is_finished(now):
             return WakeDecision(False, "experiment_finished")
+        if getattr(self.episodes.experiment, "status", None) == "paused":
+            return WakeDecision(False, "experiment_paused")
 
         # 2) Cycle en cours (un ordre est entre la décision et l'exécution)
         in_flight = self._has_order_in_status(candidate.id, IN_FLIGHT_STATUSES)

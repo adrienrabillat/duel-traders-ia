@@ -16,6 +16,7 @@ Architecture :
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import Counter
@@ -182,37 +183,71 @@ def build_team_system_prompt(
     )
 
 
+def build_blind_pitch_user_prompt(base_user_prompt: str) -> str:
+    """Prompt pour le pitch initial à l'aveugle (tour 0).
+
+    Le membre écrit sa proposition SANS voir celles des autres — il évite ainsi
+    l'effet de cascade informationnelle où le 2ᵉ s'aligne sur le 1ᵉʳ.
+    Sa réponse forme avec les 4 autres pitchs aveugles l'ouverture du débat.
+    """
+    return (
+        base_user_prompt
+        + "\n\n=== PITCH INITIAL À L'AVEUGLE ===\n"
+        + "Tu écris ta proposition de stratégie SANS voir celles des autres "
+        + "membres du conseil. Tes 4 collègues écrivent en parallèle. Cette "
+        + "phase capture les vraies opinions de départ avant que la dynamique "
+        + "de groupe ne s'installe.\n\n"
+        + "Sois CONCRET et OPINIONÉ : propose l'action que TU ferais, sans "
+        + "chercher le consensus. Tu auras tout le débat pour ajuster ensuite.\n\n"
+        + "=== À TOI ===\n"
+        + "Réponds avec le JSON {message_to_team, proposed_action}."
+    )
+
+
 def build_team_user_prompt(
     base_user_prompt: str,
     history: list[TurnRecord],
     current_turn: int,
 ) -> str:
-    """Enrichit le user_prompt standard avec l'historique de la délibération."""
-    if not history:
-        history_text = (
-            "Tu es le premier à parler. Aucun membre n'a encore donné son avis. "
-            "Pose le débat."
-        )
-    else:
-        lines = []
-        for h in history:
+    """Enrichit le user_prompt standard avec l'historique de la délibération.
+
+    Affiche d'abord le bloc PITCH INITIAL (tour 0) puis les tours de débat.
+    """
+    pitches = [h for h in history if h.turn_number == 0]
+    debates = [h for h in history if h.turn_number >= 1]
+
+    sections = []
+    if pitches:
+        pitch_lines = []
+        for h in pitches:
             kind = h.proposed_action_kind or "—"
-            lines.append(
-                f"[Tour {h.turn_number}] {h.speaker_name} → propose {kind}\n"
-                f"  « {h.message_to_team} »"
+            pitch_lines.append(
+                f"  • {h.speaker_name} → {kind}\n    « {h.message_to_team} »"
             )
-        history_text = "\n\n".join(lines)
+        sections.append("PITCHS INITIAUX (chacun les a écrits sans voir les autres) :\n" + "\n".join(pitch_lines))
+
+    if debates:
+        debate_lines = []
+        for h in debates:
+            kind = h.proposed_action_kind or "—"
+            debate_lines.append(
+                f"[Tour {h.turn_number}] {h.speaker_name} → propose {kind}\n  « {h.message_to_team} »"
+            )
+        sections.append("DÉBAT EN COURS :\n" + "\n\n".join(debate_lines))
+
+    history_text = "\n\n".join(sections) if sections else (
+        "Tu es le premier à parler. Aucun membre n'a encore donné son avis. Pose le débat."
+    )
 
     return (
         base_user_prompt
-        + "\n\n=== DÉLIBÉRATION EN COURS ===\n"
+        + "\n\n=== DÉLIBÉRATION ===\n"
         + f"Tour {current_turn} sur {DEFAULT_MAX_TURNS}.\n\n"
-        + "Messages déjà échangés :\n"
         + history_text
         + "\n\n=== À TOI DE PARLER ===\n"
-        + "Réponds avec le JSON {message_to_team, proposed_action}. "
-        + "Si une majorité claire émerge, n'aie pas peur d'y aller. "
-        + "Sinon, défends ta position."
+        + "Tu vois les pitchs initiaux des autres et le débat. "
+        + "Tu peux maintenir ta position, te rallier, ou proposer un compromis. "
+        + "Réponds avec le JSON {message_to_team, proposed_action}."
     )
 
 
@@ -278,6 +313,60 @@ def tally_votes(
 # =============================================================================
 
 
+async def _call_member(
+    member: TeamMember,
+    system_prompt: str,
+    user_prompt: str,
+    gateway,  # noqa: ANN001
+    turn_number: int,
+) -> TurnRecord:
+    """Appelle un membre, parse sa réponse, renvoie un TurnRecord.
+    Persiste l'erreur si exception (pas de silencieux)."""
+    request = LLMRequest(
+        candidate_name=f"Team:{member.name}",
+        model=member.model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+    provider = gateway.providers.get(member.provider)
+    now = datetime.now(timezone.utc)
+
+    if provider is None:
+        return TurnRecord(
+            turn_number=turn_number, speaker_name=member.name,
+            speaker_model=member.model, speaker_provider=member.provider,
+            message_to_team="(provider non configuré)", proposed_action=None,
+            proposed_action_kind=None, raw_response="",
+            parse_error=f"no provider {member.provider}",
+            tokens_input=0, tokens_output=0, latency_ms=0, created_at=now,
+        )
+
+    try:
+        response = await provider.complete(request)
+    except Exception as e:
+        logger.exception("Team member %s failed", member.name)
+        return TurnRecord(
+            turn_number=turn_number, speaker_name=member.name,
+            speaker_model=member.model, speaker_provider=member.provider,
+            message_to_team=f"⚠️ {type(e).__name__} — {str(e)[:200]}",
+            proposed_action=None, proposed_action_kind=None,
+            raw_response="", parse_error=f"{type(e).__name__}: {e}",
+            tokens_input=0, tokens_output=0, latency_ms=0, created_at=now,
+        )
+
+    speech, parse_error = parse_team_speech(response.raw_text)
+    return TurnRecord(
+        turn_number=turn_number, speaker_name=member.name,
+        speaker_model=member.model, speaker_provider=member.provider,
+        message_to_team=speech.message_to_team if speech else "(parse failed)",
+        proposed_action=speech.proposed_action if speech else None,
+        proposed_action_kind=speech.proposed_action.action.value if speech else None,
+        raw_response=response.raw_text, parse_error=parse_error,
+        tokens_input=response.tokens_input, tokens_output=response.tokens_output,
+        latency_ms=response.latency_ms, created_at=now,
+    )
+
+
 async def run_council_deliberation(
     members: list[TeamMember],
     gateway,  # noqa: ANN001 (LLMGateway, avoid circular import)
@@ -287,96 +376,38 @@ async def run_council_deliberation(
 ) -> tuple[list[TurnRecord], Action, VoteOutcome]:
     """Pilote la délibération du conseil.
 
-    Pour chaque tour, chaque membre parle dans l'ordre. Après chaque tour,
-    on tally les votes. Dès qu'une majorité est atteinte, on s'arrête et
-    on renvoie l'action gagnante. Sinon, fallback HOLD.
+    Phase 0 : PITCH INITIAL — les 5 membres écrivent en PARALLÈLE, sans voir
+    les autres. Évite l'effet de cascade où le 2ᵉ s'aligne sur le 1ᵉʳ.
+    Phase 1+ : DÉBAT OUVERT — séquentiel, avec ROULEMENT de l'ordre à chaque
+    tour (shift circulaire) pour que personne ne monopolise l'ouverture.
+    Tally après chaque tour de débat (les pitchs ne comptent PAS comme votes).
 
     Renvoie (historique complet, action retenue, résultat du vote).
     """
     history: list[TurnRecord] = []
-    last_outcome: VoteOutcome | None = None
 
+    # === Phase 0 : pitchs aveugles en parallèle ===
+    pitch_prompts = [
+        (build_team_system_prompt(m.name, members), build_blind_pitch_user_prompt(base_user_prompt), m)
+        for m in members
+    ]
+    pitch_records = await asyncio.gather(
+        *(_call_member(m, sys_p, usr_p, gateway, turn_number=0) for sys_p, usr_p, m in pitch_prompts)
+    )
+    history.extend(pitch_records)
+
+    # Pas de tally après phase 0 — les pitchs sont juste exploratoires.
+
+    # === Phase 1+ : débat séquentiel avec roulement ===
+    last_outcome: VoteOutcome | None = None
     for turn in range(1, max_turns + 1):
-        for member in members:
+        # Roulement circulaire : tour 1 → ordre normal, tour 2 → shift d'1, etc.
+        shift = (turn - 1) % len(members)
+        turn_order = members[shift:] + members[:shift]
+        for member in turn_order:
             system_prompt = build_team_system_prompt(member.name, members)
             user_prompt = build_team_user_prompt(base_user_prompt, history, turn)
-
-            request = LLMRequest(
-                candidate_name=f"Team:{member.name}",
-                model=member.model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            )
-
-            provider = gateway.providers.get(member.provider)
-            if provider is None:
-                logger.error("No provider %s in gateway for Team member %s", member.provider, member.name)
-                history.append(
-                    TurnRecord(
-                        turn_number=turn,
-                        speaker_name=member.name,
-                        speaker_model=member.model,
-                        speaker_provider=member.provider,
-                        message_to_team="(provider non configuré)",
-                        proposed_action=None,
-                        proposed_action_kind=None,
-                        raw_response="",
-                        parse_error=f"no provider {member.provider} in gateway",
-                        tokens_input=0,
-                        tokens_output=0,
-                        latency_ms=0,
-                        created_at=datetime.now(timezone.utc),
-                    )
-                )
-                continue
-
-            try:
-                response = await provider.complete(request)
-            except Exception as e:
-                # On persiste quand même une intervention pour que l'erreur soit
-                # visible côté UI — sinon le membre disparaît silencieusement du
-                # chat et on ne sait pas qu'il y a eu un crash transient.
-                logger.exception("Team member %s failed to respond", member.name)
-                history.append(
-                    TurnRecord(
-                        turn_number=turn,
-                        speaker_name=member.name,
-                        speaker_model=member.model,
-                        speaker_provider=member.provider,
-                        message_to_team=f"⚠️ {type(e).__name__} — {str(e)[:200]}",
-                        proposed_action=None,
-                        proposed_action_kind=None,
-                        raw_response="",
-                        parse_error=f"{type(e).__name__}: {e}",
-                        tokens_input=0,
-                        tokens_output=0,
-                        latency_ms=0,
-                        created_at=datetime.now(timezone.utc),
-                    )
-                )
-                continue
-
-            speech, parse_error = parse_team_speech(response.raw_text)
-
-            record = TurnRecord(
-                turn_number=turn,
-                speaker_name=member.name,
-                speaker_model=member.model,
-                speaker_provider=member.provider,
-                message_to_team=(
-                    speech.message_to_team if speech else "(parse failed)"
-                ),
-                proposed_action=speech.proposed_action if speech else None,
-                proposed_action_kind=(
-                    speech.proposed_action.action.value if speech else None
-                ),
-                raw_response=response.raw_text,
-                parse_error=parse_error,
-                tokens_input=response.tokens_input,
-                tokens_output=response.tokens_output,
-                latency_ms=response.latency_ms,
-                created_at=datetime.now(timezone.utc),
-            )
+            record = await _call_member(member, system_prompt, user_prompt, gateway, turn_number=turn)
             history.append(record)
 
         # Tally après que tous les membres aient parlé pour ce tour

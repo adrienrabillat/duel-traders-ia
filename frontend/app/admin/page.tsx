@@ -11,9 +11,55 @@ export default function AdminPage() {
   const [wakeBusy, setWakeBusy] = useState<number | null>(null);
   const [wakeResults, setWakeResults] = useState<Record<number, string>>({});
 
-  const { data: candidates } = useSWR("/api/candidates", () => api.getCandidates(), {
-    refreshInterval: 30000,
-  });
+  const { data: candidates, mutate: refetchCandidates } = useSWR(
+    "/api/candidates",
+    () => api.getCandidates(),
+    { refreshInterval: 30000 }
+  );
+  const { data: experiment, mutate: refetchExperiment } = useSWR(
+    "/api/experiment",
+    () => api.getExperiment(),
+    { refreshInterval: 30000 }
+  );
+  const [globalBusy, setGlobalBusy] = useState(false);
+  const [globalMsg, setGlobalMsg] = useState<string | null>(null);
+
+  const triggerPause = async () => {
+    if (!confirm("PAUSE : liquider toutes les positions ouvertes au prix courant et arrêter les réveils des LLM ?")) return;
+    setGlobalBusy(true);
+    try {
+      const r = await api.pauseExperiment();
+      setGlobalMsg(`⏸️ Expérience en pause — ${r.orders_cancelled} ordres annulés, ${r.positions_liquidated.length} positions liquidées.`);
+      await refetchExperiment();
+      await refetchCandidates();
+    } catch (e) {
+      setGlobalMsg(`❌ Pause : ${(e as Error).message}`);
+    } finally { setGlobalBusy(false); }
+  };
+
+  const triggerResume = async () => {
+    setGlobalBusy(true);
+    try {
+      const r = await api.resumeExperiment();
+      setGlobalMsg(`▶️ Reprise (status=${r.status})`);
+      await refetchExperiment();
+    } catch (e) {
+      setGlobalMsg(`❌ Resume : ${(e as Error).message}`);
+    } finally { setGlobalBusy(false); }
+  };
+
+  const triggerResetAll = async () => {
+    if (!confirm("RESET ALL : efface TOUT l'historique de tous les candidats, remet chaque wallet à 1000 USDC. Continuer ?")) return;
+    if (!confirm("Tu es VRAIMENT sûr ? Cette action est irréversible.")) return;
+    setGlobalBusy(true);
+    try {
+      const r = await api.resetAll("1000");
+      setGlobalMsg(`🔄 Reset all — ${r.count} candidats remis à 1000 USDC.`);
+      await refetchCandidates();
+    } catch (e) {
+      setGlobalMsg(`❌ Reset all : ${(e as Error).message}`);
+    } finally { setGlobalBusy(false); }
+  };
 
   const triggerKill = async () => {
     if (!confirm("KILL SWITCH : tous les ordres en attente seront rejetés et l'expérience stoppée. Confirmer ?")) {
@@ -89,18 +135,29 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-bold">Admin</h1>
           <p className="text-sm text-muted">
-            Validation des ordres, réveil forcé des candidats, kill switch.
+            État expérience : <strong>{experiment?.status ?? "..."}</strong> · Épisode {experiment?.current_episode ?? "?"}
           </p>
         </div>
-        <button
-          onClick={triggerKill}
-          disabled={killBusy}
-          className="btn-negative"
-        >
-          🛑 Kill switch
-        </button>
+        <div className="flex gap-2 flex-wrap justify-end">
+          {experiment?.status === "paused" ? (
+            <button onClick={triggerResume} disabled={globalBusy} className="btn-primary">
+              ▶️ Reprendre
+            </button>
+          ) : (
+            <button onClick={triggerPause} disabled={globalBusy} className="btn-negative">
+              ⏸️ Pause
+            </button>
+          )}
+          <button onClick={triggerResetAll} disabled={globalBusy} className="btn-negative">
+            🔄 Reset all (1000$)
+          </button>
+          <button onClick={triggerKill} disabled={killBusy} className="btn-negative">
+            🛑 Kill switch
+          </button>
+        </div>
       </div>
 
+      {globalMsg && <div className="card text-sm">{globalMsg}</div>}
       {killResult && <div className="card text-sm">{killResult}</div>}
 
       <section>

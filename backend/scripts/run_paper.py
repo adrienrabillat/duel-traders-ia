@@ -25,7 +25,7 @@ from app.config import get_settings
 from app.db import get_engine, get_session_factory
 from app.models import Base, Experiment
 from app.services.binance_connector import PaperBinance
-from app.services.info_clients import CoinSnapshot
+from app.services.info_clients import CoinGeckoClient, CoinSnapshot
 from app.services.ledger import Ledger
 from app.services.llm_gateway import (
     AnthropicProvider,
@@ -62,10 +62,17 @@ CANDIDATES = [
 
 TEAM_PROVIDER = "anthropic"
 
-# Ordre des prises de parole dans le Conseil. On commence par Mistral pour avoir
-# un point de vue "européen / open-source" qui pose le débat, puis on alterne.
-# (L'ordre des candidats individuels au leaderboard, lui, suit CANDIDATES.)
+# Ordre des prises de parole dans le Conseil au tour 1. À chaque tour suivant
+# on fait un shift circulaire (cf. team_council.run_council_deliberation).
 TEAM_SPEAKING_ORDER = ["Mistral", "Claude", "ChatGPT", "Gemini", "Grok"]
+
+# Capital initial de chaque candidat (USDC). En live paper trading sur de
+# vrais prix Binance, 1000 USDC permet des positions exploitables (vs 10).
+INITIAL_BALANCE_USDC = Decimal("1000")
+
+# Univers tradable. Ces 3 paires sont assez liquides pour qu'on puisse
+# faire confiance aux prix temps réel renvoyés par CoinGecko.
+TRADABLE_SYMBOLS = ["BTCUSDC", "ETHUSDC", "SOLUSDC"]
 
 SCRIPTED_HOLD = (
     '{"action": "HOLD", "reasoning_summary": "Mode fallback : pas de provider réel, '
@@ -145,9 +152,9 @@ def _bootstrap_db_and_data() -> int:
             db.flush()
             ledger = Ledger(db)
             for name, model, _ in CANDIDATES:
-                ledger.create_candidate(name, model, Decimal("10"))
+                ledger.create_candidate(name, model, INITIAL_BALANCE_USDC)
             ledger.create_candidate(
-                "Team", "consensus-5-models", Decimal("10"), kind="team"
+                "Team", "consensus-5-models", INITIAL_BALANCE_USDC, kind="team"
             )
             db.commit()
             logger.info("Expérience initiale créée (id=%d)", experiment.id)
@@ -175,12 +182,67 @@ def _bootstrap_db_and_data() -> int:
 # =============================================================================
 
 
+def make_live_market_provider(binance: PaperBinance):
+    """Renvoie un market_provider asynchrone qui interroge CoinGecko (et
+    alternative.me pour Fear&Greed) à chaque tick et synchronise PaperBinance
+    avec les vrais prix spot.
+
+    CoinGecko free tier : ~30 req/min — largement assez à un tick toutes les 30s.
+    On utilise CoinGecko car Binance public bloque selon l'IP source (HTTP 451
+    en EU/US depuis certains hosts cloud), alors que CoinGecko est accessible
+    partout.
+
+    Si CoinGecko répond mal (panne réseau, rate limit), on log et on garde les
+    derniers prix connus (le tick continue, OCO inchangé).
+    """
+    cg = CoinGeckoClient()
+    last_universe: list[CoinSnapshot] = []
+    last_prices: dict[str, Decimal] = {}
+    # Coins CoinGecko qu'on suit et leur symbole Binance équivalent
+    coin_to_binance = {"bitcoin": "BTCUSDC", "ethereum": "ETHUSDC", "solana": "SOLUSDC"}
+
+    async def _provider():
+        nonlocal last_universe, last_prices
+        try:
+            top = await cg.get_universe_top_n(20)
+        except Exception as e:  # pragma: no cover - réseau
+            logger.warning("CoinGecko fetch failed (%s) — fallback derniers prix", e)
+            return last_universe, last_prices, None
+
+        universe: list[CoinSnapshot] = []
+        prices: dict[str, Decimal] = {}
+        for snap in top:
+            symbol = coin_to_binance.get(snap.coin_id)
+            if symbol is None:
+                continue  # on garde uniquement les 3 paires tradables
+            prices[symbol] = snap.current_price_usd
+            # Sync PaperBinance pour que les OCO se déclenchent sur le vrai prix
+            binance.set_price(symbol, snap.current_price_usd)
+            universe.append(snap)
+
+        # Fear & Greed via alternative.me (silent fail si indispo)
+        fear_greed: int | None = None
+        try:
+            fng = await cg.get_fear_and_greed()
+            if fng and "value" in fng:
+                fear_greed = int(fng["value"])
+        except Exception:  # pragma: no cover
+            pass
+
+        last_universe, last_prices = universe, prices
+        return universe, prices, fear_greed
+
+    return _provider
+
+
 def build_loop(experiment_id: int) -> PaperTradingLoop:
     """Construit une PaperTradingLoop prête à tourner, sans la démarrer.
 
     Réutilisable par la CLI (run_paper) et par le lifespan FastAPI en prod.
+    Utilise Binance public pour les prix en live (paper trading réaliste).
     """
     binance = PaperBinance()
+    # Prix initiaux par sécurité — seront overridés au premier tick
     binance.set_price("BTCUSDC", Decimal("100000"))
     binance.set_price("ETHUSDC", Decimal("3500"))
     binance.set_price("SOLUSDC", Decimal("180"))
@@ -188,44 +250,6 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
     gateway = build_gateway()
     provider_map = {name: provider for name, _, provider in CANDIDATES}
     provider_map["Team"] = TEAM_PROVIDER
-
-    universe = [
-        CoinSnapshot(
-            coin_id="bitcoin",
-            symbol="BTC",
-            name="Bitcoin",
-            current_price_usd=Decimal("100000"),
-            market_cap_usd=Decimal("2000000000000"),
-            volume_24h_usd=Decimal("50000000000"),
-            price_change_24h_pct=Decimal("1.5"),
-            categories=["majors"],
-        ),
-        CoinSnapshot(
-            coin_id="ethereum",
-            symbol="ETH",
-            name="Ethereum",
-            current_price_usd=Decimal("3500"),
-            market_cap_usd=Decimal("420000000000"),
-            volume_24h_usd=Decimal("20000000000"),
-            price_change_24h_pct=Decimal("0.8"),
-            categories=["majors"],
-        ),
-        CoinSnapshot(
-            coin_id="solana",
-            symbol="SOL",
-            name="Solana",
-            current_price_usd=Decimal("180"),
-            market_cap_usd=Decimal("85000000000"),
-            volume_24h_usd=Decimal("3000000000"),
-            price_change_24h_pct=Decimal("2.4"),
-            categories=["L1"],
-        ),
-    ]
-    prices = {
-        "BTCUSDC": Decimal("100000"),
-        "ETHUSDC": Decimal("3500"),
-        "SOLUSDC": Decimal("180"),
-    }
 
     factory = get_session_factory()
     with factory() as db:
@@ -247,7 +271,7 @@ def build_loop(experiment_id: int) -> PaperTradingLoop:
         binance=binance,
         gateway=gateway,
         provider_map=provider_map,
-        market_provider=static_market_provider(universe, prices, fear_greed=55),
+        market_provider=make_live_market_provider(binance),
         tick_seconds=get_settings().runtime_tick_seconds,
         team_members=team_members,
     )

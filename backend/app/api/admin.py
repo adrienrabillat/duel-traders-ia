@@ -146,6 +146,140 @@ async def force_wake_candidate(
     return {"ok": all(r.get("ok") for r in runs), "runs": runs}
 
 
+def _reset_candidate_data(db: Session, candidate: Candidate) -> dict:
+    """Helper : efface tout l'historique d'un candidat et reset son wallet."""
+    cid = candidate.id
+    decisions_count = db.query(Decision).filter(Decision.candidate_id == cid).count()
+    trades_count = db.query(Trade).filter(Trade.candidate_id == cid).count()
+    orders_count = db.query(OrderRecord).filter(OrderRecord.candidate_id == cid).count()
+    strategies_count = db.query(Strategy).filter(Strategy.candidate_id == cid).count()
+
+    db.query(Strategy).filter(Strategy.candidate_id == cid).delete(synchronize_session=False)
+    db.query(OrderRecord).filter(OrderRecord.candidate_id == cid).delete(synchronize_session=False)
+    db.query(Trade).filter(Trade.candidate_id == cid).delete(synchronize_session=False)
+    db.query(Decision).filter(Decision.candidate_id == cid).delete(synchronize_session=False)
+    db.query(Position).filter(Position.wallet_id == candidate.wallet.id).delete(
+        synchronize_session=False
+    )
+    candidate.wallet.usdc_balance = candidate.wallet.initial_balance
+    return {
+        "decisions": decisions_count,
+        "trades": trades_count,
+        "orders": orders_count,
+        "strategies": strategies_count,
+    }
+
+
+@router.post("/reset-all")
+def reset_all_candidates(
+    db: Session = DbDep, new_initial_balance_usdc: str | None = None
+) -> dict:
+    """Reset complet de TOUS les candidats. Pour repartir saison à zéro.
+
+    Si new_initial_balance_usdc est passé en query param, on update aussi
+    initial_balance (par défaut on garde l'initial_balance existant).
+    """
+    from decimal import Decimal
+
+    new_initial = Decimal(new_initial_balance_usdc) if new_initial_balance_usdc else None
+    candidates = db.query(Candidate).all()
+    summary = []
+    for c in candidates:
+        if new_initial is not None:
+            c.wallet.initial_balance = new_initial
+        cleared = _reset_candidate_data(db, c)
+        summary.append({
+            "candidate": c.name,
+            "cleared": cleared,
+            "wallet_usdc": str(c.wallet.usdc_balance),
+        })
+    db.commit()
+    return {"ok": True, "count": len(summary), "candidates": summary}
+
+
+@router.post("/pause")
+async def pause_experiment(request: Request, db: Session = DbDep) -> dict:
+    """Pause l'expérience : liquide toutes les positions ouvertes en USDC,
+    cancel les ordres pending, passe l'expérience en status 'paused'.
+
+    Les candidats ne sont plus réveillés tant que l'expérience est en pause.
+    """
+    exp = db.execute(
+        select(Experiment).where(Experiment.status.in_(["paper", "live"]))
+    ).scalar_one_or_none()
+    if exp is None:
+        raise HTTPException(404, "No active experiment to pause")
+
+    loop = getattr(request.app.state, "runtime_loop", None)
+    binance = loop.binance if loop is not None else None
+
+    liquidated = []
+    cancelled = 0
+
+    # Cancel les ordres pending
+    pending = list(
+        db.execute(
+            select(OrderRecord).where(
+                OrderRecord.status.in_(["pending_validation", "approved", "auto_approved"])
+            )
+        ).scalars()
+    )
+    now = datetime.now(timezone.utc)
+    for o in pending:
+        o.status = "rejected"
+        o.validated_at = now
+        o.error_message = "paused_by_admin"
+        cancelled += 1
+
+    # Liquider les positions ouvertes au prix courant de PaperBinance
+    if binance is not None:
+        from app.services.ledger import Ledger as _Ledger
+
+        ledger = _Ledger(db)
+        positions = list(db.query(Position).all())
+        for pos in positions:
+            try:
+                price = await binance.get_current_price(pos.symbol)
+            except Exception:
+                continue
+            try:
+                ledger.record_sell(
+                    candidate_id=pos.wallet.candidate_id,
+                    symbol=pos.symbol,
+                    quantity=pos.quantity,
+                    price=price,
+                )
+                liquidated.append({
+                    "symbol": pos.symbol,
+                    "quantity": str(pos.quantity),
+                    "price": str(price),
+                })
+            except Exception as e:
+                liquidated.append({"symbol": pos.symbol, "error": str(e)})
+
+    exp.status = "paused"
+    db.commit()
+    return {
+        "ok": True,
+        "status": "paused",
+        "orders_cancelled": cancelled,
+        "positions_liquidated": liquidated,
+    }
+
+
+@router.post("/resume")
+def resume_experiment(db: Session = DbDep) -> dict:
+    """Reprend une expérience mise en pause."""
+    exp = db.execute(
+        select(Experiment).where(Experiment.status == "paused")
+    ).scalar_one_or_none()
+    if exp is None:
+        raise HTTPException(404, "No paused experiment to resume")
+    exp.status = "paper"
+    db.commit()
+    return {"ok": True, "status": "paper", "experiment_id": exp.id}
+
+
 @router.post("/candidates/{candidate_id}/reset")
 def reset_candidate(candidate_id: int, db: Session = DbDep) -> dict:
     """Reset complet d'un candidat : efface tout l'historique et remet le wallet

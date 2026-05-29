@@ -89,14 +89,26 @@ export function TeamDeliberation({ decisionId }: { decisionId: number }) {
       {/* Fil de discussion */}
       {turnNumbers.map((turn) => (
         <div key={turn} className="space-y-3">
-          <div className="text-xs text-muted uppercase tracking-wide pl-1">
-            Tour {turn}
-          </div>
+          {turn === 0 ? (
+            <div className="border-l-4 border-accent pl-3">
+              <div className="text-xs uppercase tracking-wide text-accent font-semibold">
+                💭 Pitch initial — chacun en aveugle
+              </div>
+              <div className="text-xs text-muted mt-0.5">
+                Les 5 membres ont écrit en parallèle, sans voir les autres.
+                Ces pitchs ne comptent pas dans le vote final.
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-muted uppercase tracking-wide pl-1">
+              🗣️ Tour {turn} — débat ouvert
+            </div>
+          )}
           <div className="space-y-3">
             {data.turns
               .filter((t) => t.turn_number === turn)
               .map((t) => (
-                <ChatBubble turn={t} key={t.id} />
+                <ChatBubble turn={t} key={t.id} isPitch={turn === 0} />
               ))}
           </div>
         </div>
@@ -105,7 +117,7 @@ export function TeamDeliberation({ decisionId }: { decisionId: number }) {
   );
 }
 
-function ChatBubble({ turn }: { turn: DeliberationTurn }) {
+function ChatBubble({ turn, isPitch = false }: { turn: DeliberationTurn; isPitch?: boolean }) {
   const color = SPEAKER_COLORS[turn.speaker_name] || DEFAULT_COLOR;
   return (
     <div className="flex gap-3">
@@ -118,9 +130,12 @@ function ChatBubble({ turn }: { turn: DeliberationTurn }) {
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className={`font-semibold ${color.text}`}>{turn.speaker_name}</span>
           <span className="text-xs text-muted">{turn.speaker_model}</span>
+          {isPitch && (
+            <span className="pill bg-accent/10 text-accent text-xs">pitch aveugle</span>
+          )}
           {turn.proposed_action_kind && (
             <span className={`pill ${kindStyle(turn.proposed_action_kind)} text-xs`}>
-              propose {turn.proposed_action_kind}
+              {isPitch ? "" : "propose "}{turn.proposed_action_kind}
             </span>
           )}
           {turn.parse_error && (
@@ -129,7 +144,7 @@ function ChatBubble({ turn }: { turn: DeliberationTurn }) {
             </span>
           )}
         </div>
-        <div className={`${color.bg} rounded-2xl rounded-tl-md px-4 py-3 text-sm whitespace-pre-wrap`}>
+        <div className={`${color.bg} ${isPitch ? "ring-1 ring-accent/30" : ""} rounded-2xl rounded-tl-md px-4 py-3 text-sm whitespace-pre-wrap`}>
           {turn.message_to_team || "(message vide)"}
         </div>
         <div className="text-xs text-muted mt-1 pl-1">

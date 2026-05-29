@@ -191,10 +191,11 @@ class TestTeamCycleIntegration:
         assert result.action_kind == "PLACE_ORDER"
         assert result.order_id is not None
 
-        # 5 lignes de délibération
+        # 5 pitchs initiaux (turn 0) + 5 lignes de débat T1 = 10
         delibs = db.query(TeamDeliberation).all()
-        assert len(delibs) == 5
-        assert all(d.turn_number == 1 for d in delibs)
+        assert len(delibs) == 10
+        assert sum(1 for d in delibs if d.turn_number == 0) == 5
+        assert sum(1 for d in delibs if d.turn_number == 1) == 5
         assert {d.speaker_name for d in delibs} == set(speeches.keys())
 
     async def test_no_majority_falls_back_to_hold(self, db, ledger: Ledger) -> None:
@@ -226,6 +227,7 @@ class TestTeamCycleIntegration:
         result = await orchestrator.run_candidate_cycle(team, provider_name="x")
         assert result.action_kind == "HOLD"
 
-        # 10 lignes de délibération (2 tours x 5 membres)
+        # 5 pitchs initiaux + 2 tours x 5 membres = 15
         delibs = db.query(TeamDeliberation).all()
-        assert len(delibs) == 10
+        assert len(delibs) == 15
+        assert sum(1 for d in delibs if d.turn_number == 0) == 5
