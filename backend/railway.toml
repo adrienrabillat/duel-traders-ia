@@ -1,0 +1,13 @@
+# Configuration Railway.
+# Le builder Nixpacks détecte automatiquement pyproject.toml et installe les
+# dépendances. Le start command lit le port injecté par Railway.
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

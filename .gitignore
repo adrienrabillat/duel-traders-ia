@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Environment & secrets — JAMAIS commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# DB locale
+*.db
+*.sqlite
+*.sqlite3
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Artefacts de test
+.coverage.*
+coverage.xml
