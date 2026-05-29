@@ -118,7 +118,12 @@ def build_gateway() -> LLMGateway:
 
 
 def _bootstrap_db_and_data() -> int:
-    """Crée le schéma et amorce une expérience + les 6 candidats si absents."""
+    """Crée le schéma et amorce une expérience + les 6 candidats si absents.
+
+    Si une expérience existe déjà mais que les noms de modèles ont changé
+    (cas où on a corrigé un nom fictif → réel), on met à jour le champ
+    `model` des candidats existants. La compta du Ledger n'est pas touchée.
+    """
     engine = get_engine()
     Base.metadata.create_all(engine)
     factory = get_session_factory()
@@ -141,6 +146,22 @@ def _bootstrap_db_and_data() -> int:
             )
             db.commit()
             logger.info("Expérience initiale créée (id=%d)", experiment.id)
+        else:
+            # Sync des noms de modèles avec la config courante
+            from app.models import Candidate
+
+            current_models = {name: model for name, model, _ in CANDIDATES}
+            current_models["Team"] = "consensus-5-models"
+            updates = 0
+            for cand in db.query(Candidate).all():
+                wanted = current_models.get(cand.name)
+                if wanted and cand.model != wanted:
+                    logger.info("Sync model %s : %s → %s", cand.name, cand.model, wanted)
+                    cand.model = wanted
+                    updates += 1
+            if updates:
+                db.commit()
+                logger.info("Sync %d candidats", updates)
         return experiment.id
 
 
