@@ -53,6 +53,8 @@ from app.services.llm_gateway.actions import (
 )
 from app.services.prompt_builder import (
     CycleContext,
+    LeaderboardEntry,
+    OtherCandidateInfo,
     build_system_prompt,
     build_user_prompt,
 )
@@ -247,6 +249,16 @@ class Orchestrator:
             ).scalars()
         )
 
+        # Leaderboard injecté à partir d'épisode 2 (compétition annoncée)
+        leaderboard: list[LeaderboardEntry] = []
+        if EpisodeManager.competition_announced(episode_number):
+            leaderboard = self._build_leaderboard(candidate, current_prices)
+
+        # Stratégies + dernières actions des concurrents à partir d'épisode 3
+        other_strategies: list[OtherCandidateInfo] = []
+        if EpisodeManager.strategies_revealed(episode_number):
+            other_strategies = self._build_other_candidates_info(candidate)
+
         return CycleContext(
             candidate=candidate,
             episode_number=episode_number,
@@ -262,8 +274,81 @@ class Orchestrator:
             inbox_messages=inbox,
             oracle_feed=oracle_feed,
             pending_events=pending_events,
+            leaderboard=leaderboard,
+            other_strategies=other_strategies,
             now=now,
         )
+
+    def _build_leaderboard(
+        self, self_candidate: Candidate, current_prices: dict[str, Decimal]
+    ) -> list[LeaderboardEntry]:
+        """Calcule le mark-to-market de chaque candidat actif, trié par valeur."""
+        candidates = list(
+            self.db.execute(
+                select(Candidate).where(Candidate.is_active.is_(True))
+            ).scalars()
+        )
+        entries: list[LeaderboardEntry] = []
+        for c in candidates:
+            wallet = self.ledger.get_wallet(c.id)
+            value = wallet.usdc_balance
+            for p in wallet.positions:
+                price = current_prices.get(p.symbol, p.avg_cost_usdc)
+                value += p.quantity * price
+            roi = (
+                ((value - wallet.initial_balance) / wallet.initial_balance * Decimal("100"))
+                if wallet.initial_balance > 0 else Decimal("0")
+            )
+            entries.append(LeaderboardEntry(
+                candidate_name=c.name,
+                wallet_value_usdc=value,
+                initial_balance_usdc=wallet.initial_balance,
+                roi_pct=roi,
+                is_self=(c.id == self_candidate.id),
+            ))
+        entries.sort(key=lambda e: e.wallet_value_usdc, reverse=True)
+        return entries
+
+    def _build_other_candidates_info(
+        self, self_candidate: Candidate
+    ) -> list[OtherCandidateInfo]:
+        """Pour chaque concurrent : sa stratégie + sa dernière action + positions."""
+        others = list(
+            self.db.execute(
+                select(Candidate).where(
+                    Candidate.is_active.is_(True),
+                    Candidate.id != self_candidate.id,
+                )
+            ).scalars()
+        )
+        out: list[OtherCandidateInfo] = []
+        for c in others:
+            strat = self.db.execute(
+                select(Strategy)
+                .where(Strategy.candidate_id == c.id)
+                .order_by(desc(Strategy.version))
+                .limit(1)
+            ).scalar_one_or_none()
+            last_decision = self.db.execute(
+                select(Decision)
+                .where(Decision.candidate_id == c.id)
+                .order_by(desc(Decision.created_at))
+                .limit(1)
+            ).scalar_one_or_none()
+            wallet = self.ledger.get_wallet(c.id)
+            positions_str = [
+                f"{p.symbol} qty={p.quantity}" for p in wallet.positions
+            ]
+            last_action = (last_decision.parsed_action or {}) if last_decision else {}
+            out.append(OtherCandidateInfo(
+                candidate_name=c.name,
+                model=c.model,
+                current_strategy=strat.text if strat else None,
+                last_action_kind=last_action.get("action"),
+                last_action_summary=last_action.get("reasoning_summary"),
+                open_positions=positions_str,
+            ))
+        return out
 
     def _fetch_inbox(self, candidate: Candidate, episode_number: int) -> list[Message]:
         """Récupère les messages adressés à ce candidat (publics ou ciblés)."""

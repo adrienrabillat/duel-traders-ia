@@ -70,9 +70,15 @@ TEAM_SPEAKING_ORDER = ["Mistral", "Claude", "ChatGPT", "Gemini", "Grok"]
 # vrais prix Binance, 1000 USDC permet des positions exploitables (vs 10).
 INITIAL_BALANCE_USDC = Decimal("1000")
 
-# Univers tradable. Ces 3 paires sont assez liquides pour qu'on puisse
-# faire confiance aux prix temps réel renvoyés par CoinGecko.
-TRADABLE_SYMBOLS = ["BTCUSDC", "ETHUSDC", "SOLUSDC"]
+# Univers tradable : top N par capitalisation, hors stablecoins. Chaque coin
+# devient une paire <SYMBOL>USDC dans PaperBinance.
+UNIVERSE_TOP_N = 50
+
+# Stablecoins et wrappers qu'on ne veut pas trader (sans intérêt)
+EXCLUDED_SYMBOLS = {
+    "USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "PYUSD",
+    "WBTC", "WETH", "STETH", "WSTETH", "WBETH", "CBETH",
+}
 
 SCRIPTED_HOLD = (
     '{"action": "HOLD", "reasoning_summary": "Mode fallback : pas de provider réel, '
@@ -198,13 +204,11 @@ def make_live_market_provider(binance: PaperBinance):
     cg = CoinGeckoClient()
     last_universe: list[CoinSnapshot] = []
     last_prices: dict[str, Decimal] = {}
-    # Coins CoinGecko qu'on suit et leur symbole Binance équivalent
-    coin_to_binance = {"bitcoin": "BTCUSDC", "ethereum": "ETHUSDC", "solana": "SOLUSDC"}
 
     async def _provider():
         nonlocal last_universe, last_prices
         try:
-            top = await cg.get_universe_top_n(20)
+            top = await cg.get_universe_top_n(UNIVERSE_TOP_N)
         except Exception as e:  # pragma: no cover - réseau
             logger.warning("CoinGecko fetch failed (%s) — fallback derniers prix", e)
             return last_universe, last_prices, None
@@ -212,9 +216,10 @@ def make_live_market_provider(binance: PaperBinance):
         universe: list[CoinSnapshot] = []
         prices: dict[str, Decimal] = {}
         for snap in top:
-            symbol = coin_to_binance.get(snap.coin_id)
-            if symbol is None:
-                continue  # on garde uniquement les 3 paires tradables
+            sym = snap.symbol.upper()
+            if sym in EXCLUDED_SYMBOLS:
+                continue
+            symbol = f"{sym}USDC"
             prices[symbol] = snap.current_price_usd
             # Sync PaperBinance pour que les OCO se déclenchent sur le vrai prix
             binance.set_price(symbol, snap.current_price_usd)
