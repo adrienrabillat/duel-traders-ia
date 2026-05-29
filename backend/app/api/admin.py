@@ -32,9 +32,13 @@ from app.api.schemas import (
 from app.deps import AdminAuthDep, DbDep
 from app.models import (
     Candidate,
+    Decision,
     EpisodeEvent,
     Experiment,
     OrderRecord,
+    Position,
+    Strategy,
+    Trade,
 )
 from app.services.episode_manager import EpisodeManager
 from app.services.ledger import Ledger
@@ -114,20 +118,90 @@ def stop_experiment(experiment_id: int, db: Session = DbDep) -> OperationOk:
 
 
 @router.post("/candidates/{candidate_id}/wake")
-async def force_wake_candidate(candidate_id: int, request: Request) -> dict:
-    """Force un cycle pour ce candidat, hors planning du scheduler.
+async def force_wake_candidate(
+    candidate_id: int, request: Request, turns: int = 1
+) -> dict:
+    """Force un ou plusieurs cycles pour ce candidat, hors planning du scheduler.
 
-    Utile pour :
-    - relancer un candidat resté silencieux à cause d'une erreur (Claude debug)
-    - déclencher une délibération Team à la demande (démo)
+    Query params :
+    - `turns` (1-5, défaut 1) : enchaîne N cycles d'affilée. Utile pour Team
+      qui produit une délibération complète par cycle ; en demander 2-3 d'un
+      coup permet de voir le conseil débattre sur des contextes différents.
 
-    Renvoie {ok, candidate, cycle} en succès, ou {ok: false, error: str} avec
-    le type d'exception exact en cas d'échec — pratique pour diagnostiquer en prod.
+    Renvoie {ok, runs: [...]} avec un sous-résultat par cycle.
+    Le type d'exception exact est renvoyé en cas d'échec — pratique pour
+    diagnostiquer en prod.
     """
+    if turns < 1 or turns > 5:
+        raise HTTPException(400, "turns doit être entre 1 et 5")
     loop = getattr(request.app.state, "runtime_loop", None)
     if loop is None:
         raise HTTPException(503, "Runtime not started yet — try again in a few seconds.")
-    return await loop.wake_candidate(candidate_id)
+    runs = []
+    for _ in range(turns):
+        result = await loop.wake_candidate(candidate_id)
+        runs.append(result)
+        if not result.get("ok"):
+            break  # on arrête au premier échec
+    return {"ok": all(r.get("ok") for r in runs), "runs": runs}
+
+
+@router.post("/candidates/{candidate_id}/reset")
+def reset_candidate(candidate_id: int, db: Session = DbDep) -> dict:
+    """Reset complet d'un candidat : efface tout l'historique et remet le wallet
+    à son solde initial.
+
+    Supprime :
+    - toutes les décisions du candidat (et leurs TeamDeliberation en cascade)
+    - tous les ordres
+    - tous les trades
+    - toutes les stratégies
+    - toutes les positions
+    Puis recharge usdc_balance = initial_balance.
+
+    Réservé au candidat Team par sécurité (kind=="team"). Pour les solos,
+    refus 400 — on ne veut pas effacer un historique de course par erreur.
+    """
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(404, "Candidate not found")
+    if candidate.kind != "team":
+        raise HTTPException(
+            400,
+            f"Reset réservé au candidat Team (kind=team). Ici kind={candidate.kind!r}.",
+        )
+
+    # 1. Compter avant pour le rapport
+    decisions_count = db.query(Decision).filter(Decision.candidate_id == candidate_id).count()
+    trades_count = db.query(Trade).filter(Trade.candidate_id == candidate_id).count()
+    orders_count = db.query(OrderRecord).filter(OrderRecord.candidate_id == candidate_id).count()
+    strategies_count = db.query(Strategy).filter(Strategy.candidate_id == candidate_id).count()
+
+    # 2. Suppression — Decision en dernier pour que CASCADE prenne TeamDeliberation
+    db.query(Strategy).filter(Strategy.candidate_id == candidate_id).delete(synchronize_session=False)
+    db.query(OrderRecord).filter(OrderRecord.candidate_id == candidate_id).delete(synchronize_session=False)
+    db.query(Trade).filter(Trade.candidate_id == candidate_id).delete(synchronize_session=False)
+    db.query(Decision).filter(Decision.candidate_id == candidate_id).delete(synchronize_session=False)
+    db.query(Position).filter(Position.wallet_id == candidate.wallet.id).delete(synchronize_session=False)
+
+    # 3. Reset wallet
+    candidate.wallet.usdc_balance = candidate.wallet.initial_balance
+
+    db.commit()
+
+    return {
+        "ok": True,
+        "candidate": candidate.name,
+        "cleared": {
+            "decisions": decisions_count,
+            "trades": trades_count,
+            "orders": orders_count,
+            "strategies": strategies_count,
+        },
+        "wallet": {
+            "usdc_balance": str(candidate.wallet.usdc_balance),
+        },
+    }
 
 
 @router.post("/candidates", response_model=CandidateOut)

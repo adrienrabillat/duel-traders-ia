@@ -34,18 +34,49 @@ export default function AdminPage() {
     }
   };
 
-  const triggerWake = async (candidateId: number, name: string) => {
+  const triggerWake = async (candidateId: number, name: string, turns = 1) => {
     setWakeBusy(candidateId);
     try {
-      const result = await api.forceWake(candidateId);
-      const msg = result.ok
-        ? `✅ ${result.candidate} : cycle ${result.cycle} terminé`
-        : `❌ ${name} : ${result.error}`;
-      setWakeResults((prev) => ({ ...prev, [candidateId]: msg }));
+      const result = await api.forceWake(candidateId, turns);
+      const lines = result.runs.map((r, i) =>
+        r.ok
+          ? `✅ tour ${i + 1} : cycle ${r.cycle} terminé`
+          : `❌ tour ${i + 1} : ${r.error}`
+      );
+      setWakeResults((prev) => ({ ...prev, [candidateId]: lines.join("\n") }));
     } catch (e) {
       setWakeResults((prev) => ({
         ...prev,
         [candidateId]: `❌ ${name} : ${(e as Error).message}`,
+      }));
+    } finally {
+      setWakeBusy(null);
+    }
+  };
+
+  const triggerReset = async (candidateId: number, name: string) => {
+    if (
+      !confirm(
+        `RESET ${name} : on efface toutes ses décisions, délibérations, ordres et trades, ` +
+          `et on remet son wallet à 10 USDC. L'historique est perdu. Confirmer ?`
+      )
+    ) {
+      return;
+    }
+    setWakeBusy(candidateId);
+    try {
+      const r = await api.resetCandidate(candidateId);
+      setWakeResults((prev) => ({
+        ...prev,
+        [candidateId]:
+          `🔄 ${r.candidate} reset — ${r.cleared.decisions} décisions, ` +
+          `${r.cleared.trades} trades, ${r.cleared.orders} ordres effacés. ` +
+          `Wallet : ${r.wallet.usdc_balance} USDC.`,
+      }));
+    } catch (e) {
+      setWakeResults((prev) => ({
+        ...prev,
+        [candidateId]: `❌ Reset ${name} : ${(e as Error).message}`,
       }));
     } finally {
       setWakeBusy(null);
@@ -87,16 +118,39 @@ export default function AdminPage() {
                   <div className="font-semibold">{c.name}</div>
                   <div className="text-xs text-muted">{c.model}</div>
                 </div>
-                <button
-                  onClick={() => triggerWake(c.id, c.name)}
-                  disabled={wakeBusy === c.id}
-                  className="btn-primary text-xs"
-                >
-                  {wakeBusy === c.id ? "..." : "Réveiller"}
-                </button>
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => triggerWake(c.id, c.name, 1)}
+                    disabled={wakeBusy === c.id}
+                    className="btn-primary text-xs"
+                  >
+                    {wakeBusy === c.id ? "..." : "Réveiller"}
+                  </button>
+                  {c.kind === "team" && (
+                    <>
+                      <button
+                        onClick={() => triggerWake(c.id, c.name, 3)}
+                        disabled={wakeBusy === c.id}
+                        className="btn-primary text-xs"
+                        title="Enchaîne 3 délibérations d'affilée"
+                      >
+                        × 3 tours
+                      </button>
+                      <button
+                        onClick={() => triggerReset(c.id, c.name)}
+                        disabled={wakeBusy === c.id}
+                        className="btn-negative text-xs"
+                      >
+                        🔄 Reset
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
               {wakeResults[c.id] && (
-                <div className="text-xs mt-2 break-words">{wakeResults[c.id]}</div>
+                <pre className="text-xs mt-2 whitespace-pre-wrap break-words">
+                  {wakeResults[c.id]}
+                </pre>
               )}
             </div>
           ))}

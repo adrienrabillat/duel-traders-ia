@@ -224,9 +224,22 @@ export const api = {
       "/admin/kill-switch",
       { method: "POST", headers: adminHeaders() }
     ),
-  forceWake: (candidateId: number) =>
-    request<{ ok: boolean; candidate?: string; cycle?: string; error?: string }>(
-      `/admin/candidates/${candidateId}/wake`,
+  forceWake: (candidateId: number, turns = 1) =>
+    request<{
+      ok: boolean;
+      runs: Array<{ ok: boolean; candidate?: string; cycle?: string; error?: string }>;
+    }>(
+      `/admin/candidates/${candidateId}/wake?turns=${turns}`,
       { method: "POST", headers: adminHeaders() }
     ),
+  resetCandidate: (candidateId: number) =>
+    request<{
+      ok: boolean;
+      candidate: string;
+      cleared: { decisions: number; trades: number; orders: number; strategies: number };
+      wallet: { usdc_balance: string };
+    }>(`/admin/candidates/${candidateId}/reset`, {
+      method: "POST",
+      headers: adminHeaders(),
+    }),
 };
