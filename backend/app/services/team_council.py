@@ -311,12 +311,49 @@ async def run_council_deliberation(
             provider = gateway.providers.get(member.provider)
             if provider is None:
                 logger.error("No provider %s in gateway for Team member %s", member.provider, member.name)
+                history.append(
+                    TurnRecord(
+                        turn_number=turn,
+                        speaker_name=member.name,
+                        speaker_model=member.model,
+                        speaker_provider=member.provider,
+                        message_to_team="(provider non configuré)",
+                        proposed_action=None,
+                        proposed_action_kind=None,
+                        raw_response="",
+                        parse_error=f"no provider {member.provider} in gateway",
+                        tokens_input=0,
+                        tokens_output=0,
+                        latency_ms=0,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
                 continue
 
             try:
                 response = await provider.complete(request)
-            except Exception:
+            except Exception as e:
+                # On persiste quand même une intervention pour que l'erreur soit
+                # visible côté UI — sinon le membre disparaît silencieusement du
+                # chat et on ne sait pas qu'il y a eu un crash transient.
                 logger.exception("Team member %s failed to respond", member.name)
+                history.append(
+                    TurnRecord(
+                        turn_number=turn,
+                        speaker_name=member.name,
+                        speaker_model=member.model,
+                        speaker_provider=member.provider,
+                        message_to_team=f"⚠️ {type(e).__name__} — {str(e)[:200]}",
+                        proposed_action=None,
+                        proposed_action_kind=None,
+                        raw_response="",
+                        parse_error=f"{type(e).__name__}: {e}",
+                        tokens_input=0,
+                        tokens_output=0,
+                        latency_ms=0,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
                 continue
 
             speech, parse_error = parse_team_speech(response.raw_text)
