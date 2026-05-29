@@ -123,15 +123,18 @@ class TestUpdateStrategy:
     def test_valid(self) -> None:
         action = parse_action({
             "action": "UPDATE_STRATEGY",
+            "category": "MAJORS",
             "new_strategy": "Switch vers une stratégie défensive sur majors.",
             "reasoning_summary": "Marché trop volatil.",
         })
         assert isinstance(action, UpdateStrategyAction)
+        assert action.category.value == "MAJORS"
 
     def test_strategy_too_short(self) -> None:
         with pytest.raises(ValidationError):
             parse_action({
                 "action": "UPDATE_STRATEGY",
+                "category": "MAJORS",
                 "new_strategy": "court",
                 "reasoning_summary": "x",
             })

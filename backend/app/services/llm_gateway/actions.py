@@ -105,10 +105,38 @@ class ClosePositionAction(_ActionBase):
     symbol: str = Field(..., min_length=4, max_length=20, pattern=r"^[A-Z0-9]+USDC$")
 
 
+class StrategyCategory(StrEnum):
+    """Les 8 catégories tradables. Chaque candidat doit en choisir UNE.
+    Il ne peut ensuite trader que dans cette catégorie. Peut changer via
+    UPDATE_STRATEGY (pivot narratif visible côté UI)."""
+
+    MAJORS = "MAJORS"
+    L1 = "L1"
+    L2 = "L2"
+    DEFI = "DEFI"
+    MEMECOINS = "MEMECOINS"
+    AI = "AI"
+    GAMING = "GAMING"
+    PRIVACY_RWA = "PRIVACY_RWA"
+
+
 class UpdateStrategyAction(_ActionBase):
-    """Mise à jour de la stratégie écrite. Aucun ordre passé ce tour."""
+    """Mise à jour de la stratégie écrite + choix de catégorie.
+
+    La category est OBLIGATOIRE : c'est la thèse d'investissement du candidat.
+    Tant qu'il n'a pas de catégorie, il ne peut pas trader (PlaceOrderAction
+    rejeté). Il peut changer de catégorie via une nouvelle UPDATE_STRATEGY
+    (mais c'est un pivot narratif fort, visible dans l'UI)."""
 
     action: Literal[ActionKind.UPDATE_STRATEGY] = ActionKind.UPDATE_STRATEGY
+    category: StrategyCategory = Field(
+        ...,
+        description=(
+            "Catégorie de coins tradables pour ce candidat. Choix parmi : "
+            "MAJORS, L1, L2, DEFI, MEMECOINS, AI, GAMING, PRIVACY_RWA. "
+            "Tu ne pourras trader que dans cette catégorie."
+        ),
+    )
     new_strategy: str = Field(..., min_length=20, max_length=2000)
 
 

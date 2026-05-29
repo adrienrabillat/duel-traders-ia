@@ -17,6 +17,52 @@ from app.services.info_clients import CoinSnapshot
 from app.services.llm_gateway.actions import action_schema_for_prompt
 
 
+# =============================================================================
+# Catégories tradables — chaque candidat doit en choisir UNE comme thèse
+# d'investissement. Il ne peut ensuite trader que dans cette catégorie.
+# =============================================================================
+
+
+CATEGORY_TO_SYMBOLS: dict[str, list[str]] = {
+    "MAJORS": ["BTC", "ETH"],
+    "L1": ["SOL", "ADA", "AVAX", "DOT", "ATOM", "NEAR", "APT", "SUI", "TON"],
+    "L2": ["MATIC", "POL", "OP", "ARB", "STRK", "ZK"],
+    "DEFI": ["LINK", "UNI", "AAVE", "MKR", "CRV", "SNX", "PENDLE", "LDO"],
+    "MEMECOINS": ["DOGE", "SHIB", "PEPE", "FLOKI", "WIF", "BONK"],
+    "AI": ["FET", "RNDR", "TAO", "AGIX", "OCEAN", "WLD"],
+    "GAMING": ["SAND", "MANA", "GALA", "IMX", "AXS", "RON"],
+    "PRIVACY_RWA": ["XMR", "ZEC", "ONDO", "TIA", "INJ"],
+}
+
+CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "MAJORS": "Les deux blue chips. Sécurité, liquidité maximale, volatilité modérée.",
+    "L1": "Les concurrents de Ethereum. Plus de volatilité, narratives écosystèmes.",
+    "L2": "Solutions de scalabilité sur Ethereum. Cycliques, sensibles à l'activité L1.",
+    "DEFI": "Tokens de gouvernance et utility des protocoles DeFi.",
+    "MEMECOINS": "Pure spéculation sur les narratives. Volatilité extrême, x10 ou -90%.",
+    "AI": "Tokens liés aux narratives IA / compute décentralisé.",
+    "GAMING": "Tokens des jeux et metaverses Web3.",
+    "PRIVACY_RWA": "Privacy coins et Real World Assets. Plus thématiques que techniques.",
+}
+
+
+def coin_category(coin_symbol: str) -> str | None:
+    """Renvoie la catégorie d'un coin, ou None si non répertorié."""
+    sym = coin_symbol.upper().replace("USDC", "")
+    for cat, coins in CATEGORY_TO_SYMBOLS.items():
+        if sym in coins:
+            return cat
+    return None
+
+
+def category_pairs_for(category: str | None, market_universe: list[CoinSnapshot]) -> list[CoinSnapshot]:
+    """Renvoie les coins du market universe appartenant à cette catégorie."""
+    if not category:
+        return []
+    allowed = set(CATEGORY_TO_SYMBOLS.get(category, []))
+    return [s for s in market_universe if s.symbol.upper() in allowed]
+
+
 @dataclass(slots=True, frozen=True)
 class LeaderboardEntry:
     """Entrée du leaderboard injecté à partir de l'épisode 2."""
@@ -203,20 +249,51 @@ def build_user_prompt(ctx: CycleContext) -> str:
             )
         parts.append("")
 
-    # Marché
-    if ctx.market_universe:
-        parts.append("MARCHÉ — paires tradables (top 50 par cap, hors stablecoins) :")
-        for snap in ctx.market_universe[:50]:
-            change = (
-                f"{snap.price_change_24h_pct:+.2f}%"
-                if snap.price_change_24h_pct is not None
-                else "n/a"
-            )
-            sym_pair = f"{snap.symbol.upper()}USDC"
+    # Marché — filtré par la catégorie courante du candidat
+    current_category = ctx.current_strategy.category if ctx.current_strategy else None
+
+    if current_category is None:
+        # Pas encore de catégorie → menu de choix
+        parts.append("TU N'AS PAS ENCORE CHOISI TA CATÉGORIE.")
+        parts.append("Tant que tu n'as pas choisi, tu NE PEUX PAS TRADER (PLACE_ORDER refusé).")
+        parts.append("Tu DOIS choisir une catégorie via UPDATE_STRATEGY (champ `category`).")
+        parts.append("")
+        parts.append("CATÉGORIES DISPONIBLES :")
+        for cat, desc in CATEGORY_DESCRIPTIONS.items():
+            coins = ", ".join(CATEGORY_TO_SYMBOLS[cat])
+            parts.append(f"  {cat:14} — {desc}")
+            parts.append(f"  {'':14}   Coins : {coins}")
+        parts.append("")
+    else:
+        # Catégorie set → on lui montre uniquement ses paires
+        my_pairs = category_pairs_for(current_category, ctx.market_universe)
+        parts.append(f"TA CATÉGORIE : {current_category}")
+        parts.append(f"  ({CATEGORY_DESCRIPTIONS.get(current_category, '')})")
+        parts.append("")
+        if my_pairs:
+            parts.append("TES PAIRES TRADABLES (prix temps réel) :")
+            for snap in my_pairs:
+                change = (
+                    f"{snap.price_change_24h_pct:+.2f}%"
+                    if snap.price_change_24h_pct is not None
+                    else "n/a"
+                )
+                sym_pair = f"{snap.symbol.upper()}USDC"
+                parts.append(
+                    f"  {sym_pair:14} | prix={snap.current_price_usd:>14} | 24h={change:>9} "
+                    f"| vol_24h={float(snap.volume_24h_usd):.2e}"
+                )
+        else:
             parts.append(
-                f"  {sym_pair:14} | prix={snap.current_price_usd:>14} | 24h={change:>9} "
-                f"| vol_24h={float(snap.volume_24h_usd):.2e}"
+                f"⚠ Aucune paire de la catégorie {current_category} n'est dans le top 50 actuel — "
+                "envisage UPDATE_STRATEGY pour changer de catégorie."
             )
+        parts.append("")
+        parts.append(
+            "Pour changer de catégorie, fais un UPDATE_STRATEGY avec une nouvelle "
+            "valeur de `category`. C'est un pivot narratif fort, à n'utiliser que "
+            "si ta thèse initiale a échoué."
+        )
         parts.append("")
 
     # Fear & Greed

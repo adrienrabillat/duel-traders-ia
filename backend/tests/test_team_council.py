@@ -45,6 +45,7 @@ BUY_ACTION = {
 }
 UPDATE_STRATEGY_ACTION = {
     "action": "UPDATE_STRATEGY",
+    "category": "MEMECOINS",
     "new_strategy": "On switch sur les memes en marché de range, prudent sur les majors.",
     "reasoning_summary": "marché plat",
 }
@@ -168,6 +169,14 @@ class TestTeamCycleIntegration:
             "Team", "consensus-5", Decimal("10"), kind="team"
         )
         experiment = _make_experiment(db, datetime.now(timezone.utc))
+
+        # Team a déjà choisi sa catégorie (MAJORS) — sans ça PLACE_ORDER refusé
+        from app.models import Strategy as _S
+        db.add(_S(
+            candidate_id=team.id, version=1,
+            text="majors only", category="MAJORS", episode_number=1,
+        ))
+        db.flush()
 
         speeches = {
             name: _speech_json(BUY_ACTION, f"{name}: go !")

@@ -388,6 +388,29 @@ class Orchestrator:
             return CycleResult(decision_id=decision.id, action_kind="UNKNOWN")
 
         if isinstance(action, PlaceOrderAction):
+            # Validation catégorie : impossible de trader sans catégorie ou
+            # hors de sa catégorie. On convertit en HOLD avec message d'erreur.
+            from app.services.prompt_builder import coin_category as _cc
+            current_cat = ctx.current_strategy.category if ctx.current_strategy else None
+            order_cat = _cc(action.symbol)
+            if current_cat is None:
+                logger.warning(
+                    "PLACE_ORDER refusé pour %s : aucune catégorie choisie",
+                    ctx.candidate.name,
+                )
+                return CycleResult(
+                    decision_id=decision.id,
+                    action_kind="REJECTED_NO_CATEGORY",
+                )
+            if order_cat != current_cat:
+                logger.warning(
+                    "PLACE_ORDER refusé pour %s : %s (catégorie %s) hors de la catégorie courante %s",
+                    ctx.candidate.name, action.symbol, order_cat, current_cat,
+                )
+                return CycleResult(
+                    decision_id=decision.id,
+                    action_kind="REJECTED_WRONG_CATEGORY",
+                )
             order = self._handle_place_order(decision, action, ctx)
             return CycleResult(
                 decision_id=decision.id,
@@ -491,6 +514,7 @@ class Orchestrator:
             candidate_id=ctx.candidate.id,
             version=next_version,
             text=action.new_strategy,
+            category=action.category.value,
             episode_number=ctx.episode_number,
         )
         self.db.add(strategy)

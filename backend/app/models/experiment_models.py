@@ -78,6 +78,10 @@ class Strategy(Base):
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Catégorie de coins tradables choisie par le candidat. NULL = pas encore
+    # choisi (l'orchestrator interdit alors PLACE_ORDER tant que category est
+    # NULL). Valeurs : MAJORS, L1, L2, DEFI, MEMECOINS, AI, GAMING, PRIVACY_RWA.
+    category: Mapped[str | None] = mapped_column(String(20), nullable=True)
     episode_number: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 

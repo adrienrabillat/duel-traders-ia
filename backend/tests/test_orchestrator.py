@@ -68,6 +68,13 @@ class TestPlaceOrderFlow:
         experiment = _make_experiment(db, started)
         episode_mgr = EpisodeManager(experiment)
 
+        # Le candidat doit avoir une catégorie pour pouvoir trader.
+        db.add(Strategy(
+            candidate_id=claude.id, version=1,
+            text="majors only", category="MAJORS", episode_number=1,
+        ))
+        db.flush()
+
         provider = MockProvider(json.dumps({
             "action": "PLACE_ORDER",
             "side": "BUY",
@@ -115,6 +122,7 @@ class TestUpdateStrategyFlow:
         experiment = _make_experiment(db, datetime.now(timezone.utc))
         provider = MockProvider(json.dumps({
             "action": "UPDATE_STRATEGY",
+            "category": "MAJORS",
             "new_strategy": "Stratégie défensive sur les majors uniquement (BTC, ETH). Pas de memecoin.",
             "reasoning_summary": "Premier setup.",
         }))
@@ -138,6 +146,7 @@ class TestUpdateStrategyFlow:
         db.flush()
         provider = MockProvider(json.dumps({
             "action": "UPDATE_STRATEGY",
+            "category": "MEMECOINS",
             "new_strategy": "Pivot vers une stratégie offensive sur memecoins en bull market.",
             "reasoning_summary": "Changement de régime.",
         }))
