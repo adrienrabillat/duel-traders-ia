@@ -135,6 +135,40 @@ def build_gateway() -> LLMGateway:
 # =============================================================================
 
 
+def _apply_pending_migrations(engine) -> None:
+    """Migrations inline pour les colonnes ajoutées après création initiale.
+
+    SQLAlchemy `create_all` ne fait que créer les tables manquantes, jamais
+    `ALTER TABLE`. Quand on ajoute un champ à un modèle existant, Postgres
+    en prod n'a pas la colonne et toute query qui la SELECT (chargement
+    ORM complet) plante avec UndefinedColumn.
+
+    Approche minimale (pseudo-Alembic) : pour chaque migration ad-hoc,
+    on vérifie via information_schema si la colonne existe, et on l'ajoute
+    via ALTER TABLE IF NOT EXISTS si manquante. Idempotent : safe à appeler
+    à chaque démarrage.
+
+    Pour une vraie discipline de schéma, passer à Alembic plus tard.
+    """
+    from sqlalchemy import text as _text
+
+    migrations = [
+        # (table, column, type, default_sql)
+        ("strategies", "category", "VARCHAR(20)", None),
+    ]
+    with engine.begin() as conn:
+        for table, column, col_type, default in migrations:
+            row = conn.execute(_text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = :t AND column_name = :c LIMIT 1"
+            ), {"t": table, "c": column}).first()
+            if row is None:
+                default_clause = f" DEFAULT {default}" if default else ""
+                ddl = f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}"
+                logger.info("Applying migration: %s", ddl)
+                conn.execute(_text(ddl))
+
+
 def _bootstrap_db_and_data() -> int:
     """Crée le schéma et amorce une expérience + les 6 candidats si absents.
 
@@ -144,6 +178,7 @@ def _bootstrap_db_and_data() -> int:
     """
     engine = get_engine()
     Base.metadata.create_all(engine)
+    _apply_pending_migrations(engine)
     factory = get_session_factory()
     with factory() as db:
         experiment = db.query(Experiment).filter(Experiment.status == "paper").first()
