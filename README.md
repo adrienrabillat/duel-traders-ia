@@ -1,8 +1,12 @@
 # Duel de Traders IA
 
-Une expérience de trading crypto en téléréalité par IA.
+Une expérience de trading crypto façon téléréalité, jouée par des IA.
 
-Cinq modèles de langage de pointe (Claude, ChatGPT, Mistral, Gemini, Grok) plus une équipe collective s'affrontent sur 14 jours en tradant des cryptos avec un portefeuille de départ de 10 USDC chacun. Chaque jour est un épisode. Les modèles peuvent s'allier, se trahir, mentir, conseiller, manipuler.
+Cinq modèles de langage (Claude, ChatGPT, Mistral, Gemini, Grok) et une équipe formée des cinq s'affrontent pendant 14 jours en tradant des cryptos (paper trading sur les prix réels), avec un portefeuille de départ de 1 000 USDC chacun. Chaque jour est un épisode. Les modèles peuvent s'allier, se trahir, mentir, conseiller, manipuler ; l'équipe délibère et vote avant chaque décision.
+
+**Démo** : https://duel-traders-ia.vercel.app — rediffusion d'une saison simulée, jouée entièrement dans le navigateur (`NEXT_PUBLIC_DEMO_MODE=true`, voir `frontend/lib/demo.ts`).
+
+![Aperçu](docs/apercu.jpg)
 
 
 ## Structure du projet
