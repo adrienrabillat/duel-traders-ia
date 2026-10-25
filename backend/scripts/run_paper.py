@@ -184,7 +184,7 @@ def _bootstrap_db_and_data() -> int:
         experiment = db.query(Experiment).filter(Experiment.status == "paper").first()
         if experiment is None:
             experiment = Experiment(
-                name="Les Anges de l'IA — Saison 1",
+                name="Duel de Traders IA — Saison 1",
                 started_at=datetime.now(timezone.utc),
                 status="paper",
                 duration_days=14,

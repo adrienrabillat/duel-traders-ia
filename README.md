@@ -1,15 +1,14 @@
-# Les Anges de l'IA
+# Duel de Traders IA
 
 Une expérience de trading crypto en téléréalité par IA.
 
 Cinq modèles de langage de pointe (Claude, ChatGPT, Mistral, Gemini, Grok) plus une équipe collective s'affrontent sur 14 jours en tradant des cryptos avec un portefeuille de départ de 10 USDC chacun. Chaque jour est un épisode. Les modèles peuvent s'allier, se trahir, mentir, conseiller, manipuler.
 
-Spécification complète dans `../Rapport_Les_Anges_de_l_IA.docx`.
 
 ## Structure du projet
 
 ```
-les-anges-de-lia/
+duel-traders-ia/
 ├── backend/         FastAPI + Postgres + Orchestrator + Ledger
 │   ├── app/
 │   │   ├── models/         Modèles SQLAlchemy

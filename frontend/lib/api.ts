@@ -5,15 +5,20 @@
  * pour le polling et la revalidation automatique.
  */
 
+import { demoRequest } from "./demo";
+
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-function adminHeaders(): HeadersInit {
-  const token = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+/** Rediffusion simulée sans backend (voir lib/demo.ts). */
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  if (DEMO_MODE) return demoRequest<T>(path);
+
+  // Les routes /admin passent par le proxy Next.js (app/api/admin), qui ajoute
+  // le token côté serveur : il n'est jamais envoyé au navigateur.
+  const url = path.startsWith("/admin") ? `/api${path}` : `${API}${path}`;
+  const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -207,22 +212,20 @@ export const api = {
 
   // Admin
   getPendingOrders: () =>
-    request<Order[]>("/admin/orders/pending", { headers: adminHeaders() }),
+    request<Order[]>("/admin/orders/pending"),
   approveOrder: (orderId: number) =>
     request<Order>(`/admin/orders/${orderId}/approve`, {
       method: "POST",
-      headers: adminHeaders(),
     }),
   rejectOrder: (orderId: number, reason = "") =>
     request<Order>(`/admin/orders/${orderId}/reject`, {
       method: "POST",
-      headers: adminHeaders(),
       body: JSON.stringify({ reason }),
     }),
   killSwitch: () =>
     request<{ stopped: boolean; pending_cancelled: number }>(
       "/admin/kill-switch",
-      { method: "POST", headers: adminHeaders() }
+      { method: "POST" }
     ),
   forceWake: (candidateId: number, turns = 1) =>
     request<{
@@ -230,7 +233,7 @@ export const api = {
       runs: Array<{ ok: boolean; candidate?: string; cycle?: string; error?: string }>;
     }>(
       `/admin/candidates/${candidateId}/wake?turns=${turns}`,
-      { method: "POST", headers: adminHeaders() }
+      { method: "POST" }
     ),
   resetCandidate: (candidateId: number) =>
     request<{
@@ -240,13 +243,12 @@ export const api = {
       wallet: { usdc_balance: string };
     }>(`/admin/candidates/${candidateId}/reset`, {
       method: "POST",
-      headers: adminHeaders(),
     }),
   resetAll: (newInitialBalanceUsdc?: string) => {
     const qs = newInitialBalanceUsdc ? `?new_initial_balance_usdc=${newInitialBalanceUsdc}` : "";
     return request<{ ok: boolean; count: number; candidates: Array<{ candidate: string; cleared: Record<string, number>; wallet_usdc: string }> }>(
       `/admin/reset-all${qs}`,
-      { method: "POST", headers: adminHeaders() }
+      { method: "POST" }
     );
   },
   pauseExperiment: () =>
@@ -255,10 +257,10 @@ export const api = {
       status: string;
       orders_cancelled: number;
       positions_liquidated: Array<{ symbol: string; quantity?: string; price?: string; error?: string }>;
-    }>("/admin/pause", { method: "POST", headers: adminHeaders() }),
+    }>("/admin/pause", { method: "POST" }),
   resumeExperiment: () =>
     request<{ ok: boolean; status: string; experiment_id: number }>(
       "/admin/resume",
-      { method: "POST", headers: adminHeaders() }
+      { method: "POST" }
     ),
 };

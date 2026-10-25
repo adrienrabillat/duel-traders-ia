@@ -16,7 +16,7 @@ export function PendingOrders() {
       <div className="card text-negative">
         Erreur API : {(error as Error).message}
         <div className="text-xs text-muted mt-2">
-          Vérifie que NEXT_PUBLIC_ADMIN_TOKEN est défini si l'auth est active.
+          Vérifie que ADMIN_API_TOKEN est défini côté serveur si l'auth est active.
         </div>
       </div>
     );

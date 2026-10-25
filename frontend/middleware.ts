@@ -1,5 +1,6 @@
 /**
- * Middleware Next.js : protège /admin/* avec un cookie de session signé HMAC.
+ * Middleware Next.js : protège /admin/* et /api/admin/* avec un cookie de
+ * session signé HMAC.
  *
  * Si la variable d'env `ADMIN_PASSWORD` n'est pas définie, le middleware
  * laisse passer (mode dev). Sinon il vérifie le cookie `admin_session`
@@ -11,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/api/admin/:path*"],
 };
 
 async function expectedToken(password: string): Promise<string> {
@@ -28,6 +29,11 @@ async function expectedToken(password: string): Promise<string> {
 }
 
 export async function middleware(req: NextRequest) {
+  // En mode démo, il n'y a pas d'administration
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
+
   const password = process.env.ADMIN_PASSWORD;
 
   // Pas de mot de passe configuré → mode dev, accès libre
@@ -60,6 +66,10 @@ export async function middleware(req: NextRequest) {
 }
 
 function redirectToLogin(req: NextRequest): NextResponse {
+  // Les appels API reçoivent une 401, pas une redirection HTML
+  if (req.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ detail: "Session admin requise" }, { status: 401 });
+  }
   const url = req.nextUrl.clone();
   const from = url.pathname + url.search;
   url.pathname = "/admin/login";

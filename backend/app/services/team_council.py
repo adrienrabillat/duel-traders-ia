@@ -133,7 +133,7 @@ def parse_team_speech(raw_text: str) -> tuple[TeamSpeech | None, str | None]:
 
 
 _TEAM_SYSTEM_TEMPLATE = """Tu es {speaker_name}, l'un des 5 membres du Conseil Team
-de l'expérience « Les Anges de l'IA ». Le conseil partage un compte commun de
+de l'expérience « Duel de Traders IA ». Le conseil partage un compte commun de
 trading crypto avec un capital virtuel de 10 USDC, indépendant des candidats
 individuels qui vous correspondent.
 

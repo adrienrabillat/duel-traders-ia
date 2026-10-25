@@ -1,4 +1,4 @@
-# Frontend — Les Anges de l'IA
+# Frontend — Duel de Traders IA
 
 Dashboard Next.js (App Router) + Tailwind. Style minimaliste type fintech (inspiré Revolut / Linear), mobile-first.
 
@@ -36,10 +36,12 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 Si `ADMIN_API_TOKEN` est défini côté backend, ajouter dans `.env.local` :
 
 ```
-NEXT_PUBLIC_ADMIN_TOKEN=ton-token
+ADMIN_API_TOKEN=ton-token
+ADMIN_PASSWORD=mot-de-passe-de-la-page-admin
 ```
 
-(Côté front, ce token est exposé au navigateur — c'est OK pour un usage interne en équipe, pas pour un dashboard public sans middleware d'auth.)
+Le navigateur n'appelle jamais le backend admin directement : il passe par le proxy
+`app/api/admin/[...path]`, protégé par le cookie de session, qui ajoute le token côté serveur.
 
 ## Production (Vercel)
 
@@ -49,7 +51,8 @@ vercel deploy
 
 Variables d'env à configurer dans le projet Vercel :
 - `NEXT_PUBLIC_API_URL` : URL de ton backend Railway
-- `NEXT_PUBLIC_ADMIN_TOKEN` : seulement pour le sous-domaine admin
+- `ADMIN_API_TOKEN` et `ADMIN_PASSWORD` : pour l'administration (côté serveur uniquement)
+- `NEXT_PUBLIC_DEMO_MODE=true` : rediffusion simulée sans backend (voir `lib/demo.ts`)
 
 ## À venir
 

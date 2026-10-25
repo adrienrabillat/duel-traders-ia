@@ -47,7 +47,7 @@ def _init_sentry() -> None:
             environment=get_settings().app_env,
             traces_sample_rate=0.1,  # 10% des requêtes tracées (à ajuster)
             send_default_pii=False,
-            release="les-anges-de-lia@0.1.0",
+            release="duel-traders-ia@0.1.0",
         )
         logger.info("Sentry initialisé (env=%s)", get_settings().app_env)
     except ImportError:
@@ -110,7 +110,7 @@ def create_app() -> FastAPI:
     _init_sentry()
     settings = get_settings()
     app = FastAPI(
-        title="Les Anges de l'IA",
+        title="Duel de Traders IA",
         description="Backend de l'expérience de trading crypto en téléréalité IA.",
         version="0.1.0",
         lifespan=lifespan,
@@ -134,7 +134,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:
-        return {"status": "ok", "service": "les-anges-de-lia"}
+        return {"status": "ok", "service": "duel-traders-ia"}
 
     return app
 

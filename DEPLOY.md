@@ -1,4 +1,4 @@
-# Déploiement — Les Anges de l'IA
+# Déploiement — Duel de Traders IA
 
 Guide step-by-step pour passer du local au prod (Railway + Vercel + Postgres).
 
@@ -27,7 +27,7 @@ Guide step-by-step pour passer du local au prod (Railway + Vercel + Postgres).
 ### 1. Créer le projet Railway
 
 1. Va sur https://railway.app/new → **Deploy from GitHub repo**
-2. Sélectionne le repo `les-anges-de-lia`
+2. Sélectionne le repo `duel-traders-ia`
 3. Quand Railway demande quel dossier servir, choisis `backend/`
 
 Railway détecte `pyproject.toml` + `nixpacks.toml` et installe automatiquement
@@ -61,7 +61,7 @@ Dans le service backend Railway → **Variables** → ajoute une par une :
 | `TAVILY_API_KEY` | Ta clé |
 | `SENTRY_DSN` | Ton DSN |
 | `ADMIN_API_TOKEN` | Génère : `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
-| `CORS_ORIGINS` | `https://les-anges-de-lia.vercel.app` (à mettre une fois Vercel déployé) |
+| `CORS_ORIGINS` | `https://duel-traders-ia.vercel.app` (à mettre une fois Vercel déployé) |
 | `RUN_RUNTIME` | `true` (active la boucle de paper trading en background) |
 | `APP_ENV` | `production` |
 | `LOG_LEVEL` | `INFO` |
@@ -69,7 +69,7 @@ Dans le service backend Railway → **Variables** → ajoute une par une :
 ### 4. Obtenir l'URL publique
 
 Dans **Settings** → **Networking** → clic **Generate Domain**
-Railway te donne une URL type `https://les-anges-de-lia-production.up.railway.app`
+Railway te donne une URL type `https://duel-traders-ia-production.up.railway.app`
 
 Teste-la : `https://<ton-url>/health` doit retourner `{"status":"ok"}`.
 
@@ -99,12 +99,12 @@ Dans Vercel → **Settings** → **Environment Variables** → ajoute :
 
 | Variable | Valeur | Visibility |
 |----------|--------|------------|
-| `NEXT_PUBLIC_API_URL` | URL Railway, ex: `https://les-anges-de-lia-production.up.railway.app` | Production |
-| `NEXT_PUBLIC_ADMIN_TOKEN` | Même valeur que `ADMIN_API_TOKEN` côté Railway | Production |
+| `NEXT_PUBLIC_API_URL` | URL Railway, ex: `https://duel-traders-ia-production.up.railway.app` | Production |
+| `ADMIN_API_TOKEN` | Même valeur que `ADMIN_API_TOKEN` côté Railway (utilisée par le proxy `/api/admin`, jamais exposée au navigateur) | Production |
 | `ADMIN_PASSWORD` | Mot de passe pour Basic Auth sur `/admin`. À garder secret. | Production |
 
-> Note : `NEXT_PUBLIC_*` sont exposées au navigateur. `ADMIN_PASSWORD` ne l'est pas
-> (pas de préfixe `NEXT_PUBLIC_`) — elle reste côté edge runtime du middleware.
+> Note : `NEXT_PUBLIC_*` sont exposées au navigateur. `ADMIN_PASSWORD` et `ADMIN_API_TOKEN`
+> ne le sont pas (pas de préfixe `NEXT_PUBLIC_`) : elles restent côté serveur.
 
 ### 3. Déployer
 

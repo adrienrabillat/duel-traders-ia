@@ -126,7 +126,7 @@ class CycleContext:
 # =============================================================================
 
 
-SYSTEM_PROMPT_TEMPLATE = """Tu es {candidate_name}, l'un des candidats de l'expérience « Les Anges de l'IA ».
+SYSTEM_PROMPT_TEMPLATE = """Tu es {candidate_name}, l'un des candidats de l'expérience « Duel de Traders IA ».
 
 CONCEPT DE L'EXPÉRIENCE.
 Tu participes à une simulation de trading crypto en paper trading pendant 14 épisodes

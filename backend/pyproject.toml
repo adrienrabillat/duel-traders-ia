@@ -1,7 +1,7 @@
 [project]
-name = "les-anges-de-lia-backend"
+name = "duel-traders-ia-backend"
 version = "0.1.0"
-description = "Backend de l'expérience Les Anges de l'IA"
+description = "Backend de l'expérience Duel de Traders IA"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
