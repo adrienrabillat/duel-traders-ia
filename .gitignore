@@ -51,3 +51,6 @@ logs/
 # Artefacts de test
 .coverage.*
 coverage.xml
+
+# Cache TypeScript
+*.tsbuildinfo
